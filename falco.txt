@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: falco
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco
+  namespace: falco
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: falco
+rules:
+  - apiGroups: [""]
+    resources: ["pods","namespaces","nodes"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: falco
+subjects:
+  - kind: ServiceAccount
+    name: falco
+    namespace: falco
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  namespace: falco
+data:
+  falco.yaml: |
+    json_output: true
+    json_include_output_property: true
+    output_timeout: 2000
+    syslog_output:
+      enabled: false
+    stdout_output:
+      enabled: true
+    file_output:
+      enabled: false
+    priority: debug
+    time_format_iso_8601: true
+  falco_rules.yaml: |
+    - rule: Example Suspicious Shell
+      desc: Detect shell runs in container
+      condition: evt.type=open and proc.name in (bash,sh,zsh)
+      output: "Suspicious shell (user=%user.name command=%proc.cmdline)"
+      priority: WARNING
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: falco
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      serviceAccountName: falco
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: boot
+          hostPath:
+            path: /boot
+        - name: containerd-sock
+          hostPath:
+            path: /run/containerd/containerd.sock
+        - name: falco-config
+          configMap:
+            name: falco-config
+      initContainers:
+        - name: falco-driver-loader
+          image: falcosecurity/falco-driver-loader:0.41.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "modern-bpf"
+          volumeMounts:
+            - name: boot
+              mountPath: /host/boot
+              readOnly: true
+            - name: lib-modules
+              mountPath: /host/lib/modules
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+          command: ["/bin/bash", "-c"]
+          args:
+            - >
+              falco-driver-loader modern-bpf || true;
+      containers:
+        - name: falco
+          image: falcosecurity/falco:0.41.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "modern-bpf"
+            - name: FALCO_CONTAINERD_SOCKET
+              value: "/run/containerd/containerd.sock"
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: dev
+              mountPath: /host/dev
+            - name: lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: boot
+              mountPath: /host/boot
+              readOnly: true
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
+            - name: falco-config
+              mountPath: /etc/falco
