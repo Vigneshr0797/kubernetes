@@ -1,0 +1,167 @@
+Perfect 👍 — let’s upgrade your setup so that **Trivy automatically generates separate reports for each namespace** in your Kubernetes cluster, **plus one combined cluster-wide summary**.
+
+This setup will:
+
+* Use your existing `/root/.cache/trivy` DB (offline safe)
+* Save all reports in `/var/log/trivy/`
+* Work under your systemd service (or manual run)
+
+---
+
+## 🧩 Step 1 — Replace the Trivy script
+
+Edit your existing script:
+
+```bash
+vi /usr/local/bin/trivy-cluster-scan.sh
+```
+
+Replace everything with the following 👇
+
+```bash
+#!/usr/bin/env bash
+
+# ========================
+# Trivy Namespace-Wise Scanner
+# ========================
+
+DATE=$(date +"%Y-%m-%d_%H-%M")
+LOG_DIR="/var/log/trivy"
+CACHE_DIR="/root/.cache/trivy"
+KUBECONFIG="/root/.kube/config"
+
+mkdir -p "$LOG_DIR"
+
+# Log file for summary
+SUMMARY_REPORT="$LOG_DIR/trivy_cluster_summary_${DATE}.txt"
+SUMMARY_HTML="$LOG_DIR/trivy_cluster_summary_${DATE}.html"
+
+echo "==============================" | tee "$SUMMARY_REPORT"
+echo " TRIVY CLUSTER SCAN - $DATE" | tee -a "$SUMMARY_REPORT"
+echo "==============================" | tee -a "$SUMMARY_REPORT"
+echo "" | tee -a "$SUMMARY_REPORT"
+
+# -----------------------
+# 1️⃣  Scan each namespace individually
+# -----------------------
+
+for ns in $(kubectl get ns --no-headers | awk '{print $1}'); do
+    echo "[$(date)] Scanning namespace: $ns" | tee -a "$SUMMARY_REPORT"
+
+    NS_HTML_REPORT="$LOG_DIR/trivy_${ns}_report_${DATE}.html"
+    NS_TXT_REPORT="$LOG_DIR/trivy_${ns}_report_${DATE}.txt"
+
+    trivy k8s --kubeconfig "$KUBECONFIG" \
+      --namespace "$ns" \
+      --report summary \
+      --format html \
+      --cache-dir "$CACHE_DIR" \
+      --skip-db-update \
+      --offline-scan \
+      --output "$NS_HTML_REPORT" 2>&1 | tee -a "$NS_TXT_REPORT"
+
+    echo "[$(date)] ✅ Completed namespace: $ns"
+    echo "Report saved: $NS_HTML_REPORT"
+    echo "" | tee -a "$SUMMARY_REPORT"
+done
+
+# -----------------------
+# 2️⃣  Full cluster summary
+# -----------------------
+echo "[$(date)] Starting cluster-wide summary scan..." | tee -a "$SUMMARY_REPORT"
+
+trivy k8s --kubeconfig "$KUBECONFIG" \
+  --report summary \
+  --format html \
+  --cache-dir "$CACHE_DIR" \
+  --skip-db-update \
+  --offline-scan \
+  --output "$SUMMARY_HTML" 2>&1 | tee -a "$SUMMARY_REPORT"
+
+echo "[$(date)] ✅ Cluster-wide scan completed successfully." | tee -a "$SUMMARY_REPORT"
+echo "Reports saved under $LOG_DIR"
+```
+
+Then make it executable again:
+
+```bash
+chmod +x /usr/local/bin/trivy-cluster-scan.sh
+```
+
+---
+
+## ⚙️ Step 2 — Test it manually first
+
+Run:
+
+```bash
+/usr/local/bin/trivy-cluster-scan.sh
+```
+
+You should see it looping through:
+
+```
+Scanning namespace: kube-system
+Scanning namespace: default
+Scanning namespace: springboot-bau
+Scanning namespace: springboot-migration
+...
+```
+
+Then:
+
+```
+✅ Cluster-wide scan completed successfully.
+Reports saved under /var/log/trivy
+```
+
+---
+
+## 🧾 Step 3 — Verify output
+
+List the results:
+
+```bash
+ls -ltr /var/log/trivy/
+```
+
+You should now see files like:
+
+```
+trivy_kube-system_report_2025-11-04_06-05.html
+trivy_default_report_2025-11-04_06-05.html
+trivy_springboot-bau_report_2025-11-04_06-05.html
+trivy_cluster_summary_2025-11-04_06-05.html
+```
+
+---
+
+## 🧰 Step 4 — Optional: Web access for reports
+
+If you installed Nginx earlier, link the folder:
+
+```bash
+ln -s /var/log/trivy /usr/share/nginx/html/trivy
+```
+
+Then open from any system:
+
+```
+http://<master-node-IP>/trivy/trivy_<namespace>_report_<timestamp>.html
+```
+
+---
+
+## ✅ Summary
+
+| Task              | Output                                                |
+| ----------------- | ----------------------------------------------------- |
+| Namespace report  | `/var/log/trivy/trivy_<namespace>_report_<date>.html` |
+| Cluster summary   | `/var/log/trivy/trivy_cluster_summary_<date>.html`    |
+| Script path       | `/usr/local/bin/trivy-cluster-scan.sh`                |
+| Service name      | `trivy-scan.service`                                  |
+| Optional web path | `http://<master-ip>/trivy/`                           |
+
+---
+
+Would you like me to modify the script so it **automatically deletes old reports (e.g., older than 7 days)** to save disk space?
