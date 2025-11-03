@@ -250,3 +250,105 @@ Falco initialized with 5 rules loaded
 ---
 
 Would you like me to also give you the **matching `falco.yaml` config file** (with eBPF + containerd configuration)? That ensures Falco hooks properly into your runtime.
+
+
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: falco
+  labels:
+    app: falco
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      serviceAccountName: falco
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: falco
+          image: docker.io/falcosecurity/falco:0.41.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "/root/.falco/falco-bpf.o"
+          volumeMounts:
+            - name: dev-fs
+              mountPath: /host/dev
+            - name: proc-fs
+              mountPath: /host/proc
+              readOnly: true
+            - name: boot-fs
+              mountPath: /host/boot
+              readOnly: true
+            - name: lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: usr
+              mountPath: /host/usr
+              readOnly: true
+            - name: etc-falco
+              mountPath: /etc/falco
+            - name: var-falco
+              mountPath: /root/.falco
+            - name: var-log
+              mountPath: /var/log
+        - name: falco-driver-loader
+          image: docker.io/falcosecurity/falco-driver-loader:0.41.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "/root/.falco/falco-bpf.o"
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: usr
+              mountPath: /host/usr
+              readOnly: true
+            - name: boot-fs
+              mountPath: /host/boot
+              readOnly: true
+            - name: var-falco
+              mountPath: /root/.falco
+            - name: etc-falco
+              mountPath: /etc/falco
+            - name: var-log
+              mountPath: /var/log
+      volumes:
+        - name: dev-fs
+          hostPath:
+            path: /dev
+        - name: proc-fs
+          hostPath:
+            path: /proc
+        - name: boot-fs
+          hostPath:
+            path: /boot
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: usr
+          hostPath:
+            path: /usr
+        - name: var-falco
+          hostPath:
+            path: /var/falco
+        - name: etc-falco
+          hostPath:
+            path: /etc/falco
+        - name: var-log
+          hostPath:
+            path: /var/log
