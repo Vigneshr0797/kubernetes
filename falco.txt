@@ -1,63 +1,100 @@
-Perfect 👍 — here’s a **ready-to-apply full YAML** setup for your on-premises Kubernetes (v1.28.14, RHEL 8, containerd runtime) with **Falco v0.41.3** and **Falco driver-loader v0.41.3** using **eBPF**.
+Perfect 👍 — since you’re on **RHEL 8**, **Kubernetes v1.28.14**, using **containerd**, and already have the Falco & Falco driver-loader Docker images (`0.41.3`), I’ll give you a **fully offline-compatible, eBPF-based Falco DaemonSet YAML** that:
 
-This manifest includes:
-
-* The `falco` namespace
-* ConfigMap (rules + config)
-* DaemonSet (runs one pod per node, mounting `/etc/falco`)
+✅ Uses your **local Falco images**
+✅ Works with **containerd**
+✅ Mounts **ConfigMap for falco.yaml & falco_rules.yaml**
+✅ Runs as a **DaemonSet on all nodes**
+✅ Uses **modern_ebpf driver** (no kernel modules or compilation)
 
 ---
 
-### ✅ **`falco-daemonset-containerd-ebpf.yaml`**
+### 🧩 Step 1 — Create the Falco configuration files
+
+#### **falco.yaml**
 
 ```yaml
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: falco
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: falco-config
-  namespace: falco
-data:
-  falco.yaml: |
-    rules_file:
-      - /etc/falco/falco_rules.yaml
-    time_format_iso_8601: true
-    json_output: true
-    json_include_output_property: true
-    priority: debug
-    outputs:
-      - name: stdout
-        enabled: true
-  falco_rules.yaml: |
-    # --- Falco Default Rules for Container Runtime Security ---
-    - rule: Terminal shell in container
-      desc: Detect shell spawned inside a container
-      condition: container.id != host and proc.name in (bash, sh, zsh, ksh)
-      output: >
-        Shell spawned in container (user=%user.name container=%container.id command=%proc.cmdline)
-      priority: WARNING
-      tags: [container, shell]
+# falco.yaml
+rules_file:
+  - /etc/falco/falco_rules.yaml
 
-    - rule: Write below binary dir
-      desc: Detect any write below /bin or /usr/bin
-      condition: evt.type in (open, creat) and evt.dir = < and fd.name startswith /bin
-      output: >
-        File written below binary dir (file=%fd.name user=%user.name command=%proc.cmdline)
-      priority: CRITICAL
-      tags: [filesystem, mitre_execution]
+json_output: true
+json_include_output_property: true
+buffered_outputs: false
+time_format_iso_8601: true
 
-    - rule: Privileged container started
-      desc: Detect privileged container creation
-      condition: container.privileged=true
-      output: Privileged container started (container=%container.id image=%container.image.repository)
-      priority: WARNING
-      tags: [container, privilege]
+syscall_event_drops:
+  threshold: 0.1
+  actions:
+    - log
+    - alert
+
+http_output:
+  enabled: false
+
+webserver:
+  enabled: true
+  listen_port: 8765
+
+program_output:
+  enabled: true
+  keep_alive: false
+  program: "cat"
+```
+
+#### **falco_rules.yaml**
+
+```yaml
+# falco_rules.yaml
+# Basic container runtime security detections
+
+- rule: Shell in Container
+  desc: Detect interactive shells running inside containers
+  condition: container and shell_procs and not run_by_falco
+  output: >
+    Detected shell in container (user=%user.name container=%container.id command=%proc.cmdline)
+  priority: WARNING
+  tags: [container, shell]
+
+- rule: Write below binary dir
+  desc: Detect any write to /bin or /usr/bin inside a container
+  condition: >
+    container and evt.type in (open,creat,openat) and
+    fd.name startswith /bin/ or fd.name startswith /usr/bin/
+  output: >
+    File below binary dir opened for writing (user=%user.name
+    command=%proc.cmdline file=%fd.name)
+  priority: ERROR
+  tags: [filesystem, container]
+
+- rule: Outbound Connection to Restricted IP
+  desc: Detect connections from containers to restricted IP ranges
+  condition: >
+    container and evt.type=connect and fd.sip in (10.0.0.0/8)
+  output: >
+    Outbound connection to restricted IP (user=%user.name
+    command=%proc.cmdline sip=%fd.sip)
+  priority: WARNING
+  tags: [network, container]
+```
+
 ---
+
+### 🧩 Step 2 — Create ConfigMap in Kubernetes
+
+```bash
+kubectl -n falco delete configmap falco-config --ignore-not-found
+kubectl -n falco create configmap falco-config \
+  --from-file=falco.yaml=./falco.yaml \
+  --from-file=falco_rules.yaml=./falco_rules.yaml
+```
+
+---
+
+### 🧩 Step 3 — Apply Falco DaemonSet YAML
+
+Save this as `falco-daemonset-ebpf.yaml`:
+
+```yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -78,147 +115,135 @@ spec:
       hostPID: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      tolerations:
-        - operator: Exists
       containers:
-        - name: falco-driver-loader
-          image: falco-driver-loader:0.41.3
+        - name: falco
+          image: <your_local_registry>/falco:0.41.3
+          imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
-          resources:
-            requests:
-              cpu: 50m
-              memory: 50Mi
-            limits:
-              memory: 200Mi
           env:
             - name: FALCO_BPF_PROBE
               value: "/root/.falco/falco-bpf.o"
           volumeMounts:
-            - name: modules
-              mountPath: /lib/modules
-            - name: usr
-              mountPath: /usr
             - name: falco-config
               mountPath: /etc/falco
-        - name: falco
-          image: falco:0.41.3
+            - name: dev-fs
+              mountPath: /host/dev
+            - name: proc-fs
+              mountPath: /host/proc
+              readOnly: true
+            - name: boot-fs
+              mountPath: /host/boot
+              readOnly: true
+            - name: lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: usr
+              mountPath: /host/usr
+              readOnly: true
+        - name: falco-driver-loader
+          image: <your_local_registry>/falco-driver-loader:0.41.3
+          imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
-          args:
-            - /usr/bin/falco
-            - -r
-            - /etc/falco/falco_rules.yaml
-          resources:
-            requests:
-              cpu: 100m
-              memory: 200Mi
-            limits:
-              memory: 500Mi
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "/root/.falco/falco-bpf.o"
           volumeMounts:
-            - name: modules
-              mountPath: /lib/modules
+            - name: lib-modules
+              mountPath: /host/lib/modules
               readOnly: true
             - name: usr
-              mountPath: /usr
+              mountPath: /host/usr
               readOnly: true
-            - name: falco-config
+            - name: boot-fs
+              mountPath: /host/boot
+              readOnly: true
+            - name: var-falco
+              mountPath: /root/.falco
+            - name: etc-falco
               mountPath: /etc/falco
-              readOnly: true
       volumes:
-        - name: modules
+        - name: falco-config
+          configMap:
+            name: falco-config
+        - name: dev-fs
+          hostPath:
+            path: /dev
+        - name: proc-fs
+          hostPath:
+            path: /proc
+        - name: boot-fs
+          hostPath:
+            path: /boot
+        - name: lib-modules
           hostPath:
             path: /lib/modules
         - name: usr
           hostPath:
             path: /usr
-        - name: falco-config
-          configMap:
-            name: falco-config
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: falco
-  namespace: falco
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: falco-cluster-role
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "namespaces", "nodes"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets", "daemonsets"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: falco-cluster-role-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: falco-cluster-role
-subjects:
-  - kind: ServiceAccount
-    name: falco
-    namespace: falco
+        - name: var-falco
+          hostPath:
+            path: /var/falco
+        - name: etc-falco
+          hostPath:
+            path: /etc/falco
 ```
 
+> 🔧 Replace `<your_local_registry>` with your local or offline image path (for example, `harbor.equitas.local/security/falco`).
+
 ---
 
-### 🚀 **Apply the manifest**
+### 🧩 Step 4 — Deploy
 
 ```bash
-kubectl apply -f falco-daemonset-containerd-ebpf.yaml
+kubectl create ns falco
+kubectl -n falco apply -f falco-daemonset-ebpf.yaml
 ```
 
-Check pods:
+Then check:
 
 ```bash
 kubectl -n falco get pods -o wide
-```
-
----
-
-### 📜 **Check logs**
-
-```bash
-kubectl -n falco logs -f <falco-pod-name> -c falco
+kubectl -n falco logs -l app=falco -c falco --tail=50
 ```
 
 You should see:
 
 ```
-Loading rules from file /etc/falco/falco_rules.yaml
-Falco initialized with eBPF driver
+Falco initialized with driver type modern_ebpf
+Loading rules from /etc/falco/falco_rules.yaml
+Starting event loop
 ```
 
 ---
 
-### 🧪 **Test**
+### 🧩 Step 5 — Test detection
+
+Run this test:
 
 ```bash
-kubectl run test-shell --image=busybox -it -- sh
+kubectl run test-shell --image=alpine --restart=Never -it -- sh
 ```
 
 Inside:
 
 ```bash
-sh
+ls /bin
 ```
 
-Then exit and check:
+Then check Falco logs:
 
 ```bash
-kubectl -n falco logs -f <falco-pod-name> -c falco | grep "Shell spawned"
+kubectl -n falco logs -l app=falco -c falco | grep Shell
 ```
 
-You’ll see Falco detect a shell process in a container.
+Expected:
+
+```
+Detected shell in container (user=root container=... command=sh)
+```
 
 ---
 
-Would you like me to modify this YAML to **use your locally available Falco images from your private registry (Harbor)** instead of the public ones? That way, it will run fully offline in your cluster.
+Would you like me to include an optional **Falco service + web dashboard (port 8765)** so you can view alerts in a browser?
