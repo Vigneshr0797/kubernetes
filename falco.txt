@@ -1,249 +1,117 @@
-Perfect 👍 — since you’re on **RHEL 8**, **Kubernetes v1.28.14**, using **containerd**, and already have the Falco & Falco driver-loader Docker images (`0.41.3`), I’ll give you a **fully offline-compatible, eBPF-based Falco DaemonSet YAML** that:
+Excellent 👏 question — you now have Trivy working perfectly as a service and generating HTML reports.
 
-✅ Uses your **local Falco images**
-✅ Works with **containerd**
-✅ Mounts **ConfigMap for falco.yaml & falco_rules.yaml**
-✅ Runs as a **DaemonSet on all nodes**
-✅ Uses **modern_ebpf driver** (no kernel modules or compilation)
+If you want to **manually generate or view the Trivy report for a specific Kubernetes namespace**, here’s exactly how you can do it.
 
 ---
 
-### 🧩 Step 1 — Create the Falco configuration files
+## 🧩 Option 1 — Manual Command (Trivy v0.67.2, Offline Mode)
 
-#### **falco.yaml**
+Since your version (v0.67.2) doesn’t support the `--namespace` flag,
+you can use this **two-step command** approach:
 
-```yaml
-# falco.yaml
-rules_file:
-  - /etc/falco/falco_rules.yaml
+```bash
+# Replace <namespace> with your actual namespace (e.g. springboot-bau)
+kubectl get all -n <namespace> -o yaml > /tmp/<namespace>_all.yaml
 
-json_output: true
-json_include_output_property: true
-buffered_outputs: false
-time_format_iso_8601: true
-
-syscall_event_drops:
-  threshold: 0.1
-  actions:
-    - log
-    - alert
-
-http_output:
-  enabled: false
-
-webserver:
-  enabled: true
-  listen_port: 8765
-
-program_output:
-  enabled: true
-  keep_alive: false
-  program: "cat"
+trivy k8s --input /tmp/<namespace>_all.yaml \
+  --report summary \
+  --format html \
+  --cache-dir /root/.cache/trivy \
+  --skip-db-update \
+  --offline-scan \
+  --output /var/log/trivy/trivy_<namespace>_report_$(date +"%Y-%m-%d_%H-%M").html
 ```
 
-#### **falco_rules.yaml**
+✅ Example for your case:
 
-```yaml
-# falco_rules.yaml
-# Basic container runtime security detections
+```bash
+kubectl get all -n springboot-bau -o yaml > /tmp/springboot-bau_all.yaml
 
-- rule: Shell in Container
-  desc: Detect interactive shells running inside containers
-  condition: container and shell_procs and not run_by_falco
-  output: >
-    Detected shell in container (user=%user.name container=%container.id command=%proc.cmdline)
-  priority: WARNING
-  tags: [container, shell]
+trivy k8s --input /tmp/springboot-bau_all.yaml \
+  --report summary \
+  --format html \
+  --cache-dir /root/.cache/trivy \
+  --skip-db-update \
+  --offline-scan \
+  --output /var/log/trivy/trivy_springboot-bau_report_$(date +"%Y-%m-%d_%H-%M").html
+```
 
-- rule: Write below binary dir
-  desc: Detect any write to /bin or /usr/bin inside a container
-  condition: >
-    container and evt.type in (open,creat,openat) and
-    fd.name startswith /bin/ or fd.name startswith /usr/bin/
-  output: >
-    File below binary dir opened for writing (user=%user.name
-    command=%proc.cmdline file=%fd.name)
-  priority: ERROR
-  tags: [filesystem, container]
+Then open:
 
-- rule: Outbound Connection to Restricted IP
-  desc: Detect connections from containers to restricted IP ranges
-  condition: >
-    container and evt.type=connect and fd.sip in (10.0.0.0/8)
-  output: >
-    Outbound connection to restricted IP (user=%user.name
-    command=%proc.cmdline sip=%fd.sip)
-  priority: WARNING
-  tags: [network, container]
+```
+/var/log/trivy/trivy_springboot-bau_report_<timestamp>.html
+```
+
+Or view it in browser:
+
+```
+http://<master-node-ip>:8080/trivy/trivy_springboot-bau_report_<timestamp>.html
 ```
 
 ---
 
-### 🧩 Step 2 — Create ConfigMap in Kubernetes
+## 🧩 Option 2 — Quick Text Output (for console view)
+
+If you just want a terminal summary instead of HTML:
 
 ```bash
-kubectl -n falco delete configmap falco-config --ignore-not-found
-kubectl -n falco create configmap falco-config \
-  --from-file=falco.yaml=./falco.yaml \
-  --from-file=falco_rules.yaml=./falco_rules.yaml
+kubectl get all -n <namespace> -o yaml > /tmp/<namespace>_all.yaml
+
+trivy k8s --input /tmp/<namespace>_all.yaml \
+  --report summary \
+  --format table \
+  --cache-dir /root/.cache/trivy \
+  --skip-db-update \
+  --offline-scan
+```
+
+Example:
+
+```bash
+trivy k8s --input /tmp/springboot-bau_all.yaml --report summary --format table --cache-dir /root/.cache/trivy --skip-db-update --offline-scan
+```
+
+This gives you a clear console table output with CVEs, severities, and packages — no HTML file.
+
+---
+
+## 🧩 Option 3 — (If You Upgrade to Trivy ≥ v0.68.0)
+
+If later you upgrade to a newer version (recommended),
+you can simplify the command to:
+
+```bash
+trivy k8s --namespace <namespace> \
+  --report summary \
+  --format html \
+  --cache-dir /root/.cache/trivy \
+  --skip-db-update \
+  --offline-scan \
+  --output /var/log/trivy/trivy_<namespace>_report.html
+```
+
+✅ Example:
+
+```bash
+trivy k8s --namespace springboot-bau --report summary --format html --cache-dir /root/.cache/trivy --skip-db-update --offline-scan --output /var/log/trivy/trivy_springboot-bau_report.html
 ```
 
 ---
 
-### 🧩 Step 3 — Apply Falco DaemonSet YAML
+### 🔍 Summary
 
-Save this as `falco-daemonset-ebpf.yaml`:
-
-```yaml
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: falco
-  namespace: falco
-  labels:
-    app: falco
-spec:
-  selector:
-    matchLabels:
-      app: falco
-  template:
-    metadata:
-      labels:
-        app: falco
-    spec:
-      serviceAccountName: falco
-      hostPID: true
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      containers:
-        - name: falco
-          image: <your_local_registry>/falco:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "/root/.falco/falco-bpf.o"
-          volumeMounts:
-            - name: falco-config
-              mountPath: /etc/falco
-            - name: dev-fs
-              mountPath: /host/dev
-            - name: proc-fs
-              mountPath: /host/proc
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr
-              mountPath: /host/usr
-              readOnly: true
-        - name: falco-driver-loader
-          image: <your_local_registry>/falco-driver-loader:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "/root/.falco/falco-bpf.o"
-          volumeMounts:
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr
-              mountPath: /host/usr
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: var-falco
-              mountPath: /root/.falco
-            - name: etc-falco
-              mountPath: /etc/falco
-      volumes:
-        - name: falco-config
-          configMap:
-            name: falco-config
-        - name: dev-fs
-          hostPath:
-            path: /dev
-        - name: proc-fs
-          hostPath:
-            path: /proc
-        - name: boot-fs
-          hostPath:
-            path: /boot
-        - name: lib-modules
-          hostPath:
-            path: /lib/modules
-        - name: usr
-          hostPath:
-            path: /usr
-        - name: var-falco
-          hostPath:
-            path: /var/falco
-        - name: etc-falco
-          hostPath:
-            path: /etc/falco
-```
-
-> 🔧 Replace `<your_local_registry>` with your local or offline image path (for example, `harbor.equitas.local/security/falco`).
+| Purpose                                          | Command                                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Export and scan specific namespace (HTML report) | `kubectl get all -n <ns> -o yaml > /tmp/<ns>.yaml && trivy k8s --input /tmp/<ns>.yaml ...` |
+| View report in browser                           | `http://<master-node-ip>:8080/trivy/trivy_<namespace>_report_<timestamp>.html`             |
+| View summary in terminal                         | `trivy k8s --input /tmp/<ns>.yaml --format table`                                          |
 
 ---
 
-### 🧩 Step 4 — Deploy
+Would you like me to give you a **wrapper script (`trivy-ns-scan.sh`)** that lets you run:
 
 ```bash
-kubectl create ns falco
-kubectl -n falco apply -f falco-daemonset-ebpf.yaml
+trivy-ns-scan.sh springboot-bau
 ```
 
-Then check:
-
-```bash
-kubectl -n falco get pods -o wide
-kubectl -n falco logs -l app=falco -c falco --tail=50
-```
-
-You should see:
-
-```
-Falco initialized with driver type modern_ebpf
-Loading rules from /etc/falco/falco_rules.yaml
-Starting event loop
-```
-
----
-
-### 🧩 Step 5 — Test detection
-
-Run this test:
-
-```bash
-kubectl run test-shell --image=alpine --restart=Never -it -- sh
-```
-
-Inside:
-
-```bash
-ls /bin
-```
-
-Then check Falco logs:
-
-```bash
-kubectl -n falco logs -l app=falco -c falco | grep Shell
-```
-
-Expected:
-
-```
-Detected shell in container (user=root container=... command=sh)
-```
-
----
-
-Would you like me to include an optional **Falco service + web dashboard (port 8765)** so you can view alerts in a browser?
+and it automatically creates and opens the HTML report for that namespace?
