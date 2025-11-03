@@ -1,3 +1,106 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: falco
+  labels:
+    app: falco
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      serviceAccountName: falco
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: falco
+          image: docker.io/falcosecurity/falco:0.41.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "/root/.falco/falco-bpf.o"
+          volumeMounts:
+            - name: falco-config
+              mountPath: /etc/falco
+            - name: dev-fs
+              mountPath: /host/dev
+            - name: proc-fs
+              mountPath: /host/proc
+              readOnly: true
+            - name: boot-fs
+              mountPath: /host/boot
+              readOnly: true
+            - name: lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: usr
+              mountPath: /host/usr
+              readOnly: true
+        - name: falco-driver-loader
+          image: docker.io/falcosecurity/falco-driver-loader:0.41.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "/root/.falco/falco-bpf.o"
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: usr
+              mountPath: /host/usr
+              readOnly: true
+            - name: boot-fs
+              mountPath: /host/boot
+              readOnly: true
+            - name: var-falco
+              mountPath: /root/.falco
+            - name: etc-falco
+              mountPath: /etc/falco
+      volumes:
+        - name: falco-config
+          configMap:
+            name: falco-config
+        - name: dev-fs
+          hostPath:
+            path: /dev
+        - name: proc-fs
+          hostPath:
+            path: /proc
+        - name: boot-fs
+          hostPath:
+            path: /boot
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: usr
+          hostPath:
+            path: /usr
+        - name: var-falco
+          hostPath:
+            path: /var/falco
+        - name: etc-falco
+          hostPath:
+            path: /etc/falco
+
+
+
+
+
+
+
+
+
+
 Perfect ✅ — here’s a **validated and minimal working version** of `falco_rules.yaml`, safe for Kubernetes + containerd setups like yours (RHEL 8, Falco v0.41.3).
 
 This file includes a few core Falco security detection rules such as *shell in container*, *write below binary dirs*, and *read sensitive file untrusted*.
