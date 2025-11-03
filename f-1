@@ -1,0 +1,153 @@
+Excellent — this image shows clearly what’s happening.
+Your Falco DaemonSet failed to start with this key error message 👇
+
+```
+Error creating: pods "falco-*" is forbidden: error looking up service account falco/falco: serviceaccount "falco" not found
+```
+
+That means Kubernetes can’t find the **ServiceAccount** named `falco` in the namespace `falco`.
+
+Let’s fix it cleanly 👇
+
+---
+
+## 🧩 Root Cause
+
+You applied the DaemonSet, but the **ServiceAccount**, **ClusterRole**, and **ClusterRoleBinding** were either:
+
+* not yet applied, or
+* not created in the correct namespace.
+
+So, Falco’s pods cannot start because they lack permission to run under `falco` ServiceAccount.
+
+---
+
+## ✅ Step-by-Step Fix
+
+### **1️⃣ Create the namespace and ServiceAccount**
+
+Run this first:
+
+```bash
+kubectl create namespace falco
+kubectl -n falco create serviceaccount falco
+```
+
+Verify:
+
+```bash
+kubectl -n falco get sa
+```
+
+You should see:
+
+```
+NAME      SECRETS   AGE
+default   1         5s
+falco     1         3s
+```
+
+---
+
+### **2️⃣ Apply RBAC roles**
+
+Now apply this RBAC config (you can copy this to a file `falco-rbac.yaml`):
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: falco-cluster-role
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - namespaces
+      - nodes
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco-cluster-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: falco-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: falco
+    namespace: falco
+```
+
+Apply it:
+
+```bash
+kubectl apply -f falco-rbac.yaml
+```
+
+Verify:
+
+```bash
+kubectl get clusterrolebinding falco-cluster-rolebinding -o yaml
+```
+
+---
+
+### **3️⃣ Reapply your Falco DaemonSet**
+
+Now that the service account exists, reapply your DaemonSet YAML:
+
+```bash
+kubectl -n falco apply -f falco-daemonset.yaml
+```
+
+---
+
+### **4️⃣ Check Deployment**
+
+```bash
+kubectl -n falco get pods -o wide
+```
+
+You should now see pods in `Running` state (1/1 READY).
+
+Then check logs:
+
+```bash
+kubectl -n falco logs -l app=falco --tail=30
+```
+
+✅ Expected:
+
+```
+Falco initialized with modern_ebpf driver
+Loading rules from /etc/falco/falco_rules.yaml
+Starting event loop
+```
+
+---
+
+### **5️⃣ (Optional) Clean old failed pods**
+
+```bash
+kubectl -n falco delete pods --all
+```
+
+Then wait for new pods to appear:
+
+```bash
+kubectl -n falco get pods -w
+```
+
+---
+
+Once these steps are done, your DaemonSet will correctly launch on all nodes using:
+
+* the **`falco` ServiceAccount**,
+* the **ClusterRole permissions**, and
+* the **eBPF runtime mode**.
+
+---
+
+Would you like me to include the **Falco Driver Loader DaemonSet YAML (0.41.3)** next, so it loads automatically before Falco starts (in case you want to keep driver-loader as a separate DaemonSet)?
