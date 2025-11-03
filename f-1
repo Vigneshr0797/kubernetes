@@ -78,6 +78,7 @@ subjects:
   - kind: ServiceAccount
     name: falco
     namespace: falco
+
 ```
 
 Apply it:
