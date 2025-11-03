@@ -1,35 +1,21 @@
+Perfect 👍 — here’s a **ready-to-apply full YAML** setup for your on-premises Kubernetes (v1.28.14, RHEL 8, containerd runtime) with **Falco v0.41.3** and **Falco driver-loader v0.41.3** using **eBPF**.
+
+This manifest includes:
+
+* The `falco` namespace
+* ConfigMap (rules + config)
+* DaemonSet (runs one pod per node, mounting `/etc/falco`)
+
+---
+
+### ✅ **`falco-daemonset-containerd-ebpf.yaml`**
+
+```yaml
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: falco
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: falco
-  namespace: falco
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: falco
-rules:
-  - apiGroups: [""]
-    resources: ["pods","namespaces","nodes"]
-    verbs: ["get","list","watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: falco
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: falco
-subjects:
-  - kind: ServiceAccount
-    name: falco
-    namespace: falco
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -38,29 +24,47 @@ metadata:
   namespace: falco
 data:
   falco.yaml: |
+    rules_file:
+      - /etc/falco/falco_rules.yaml
+    time_format_iso_8601: true
     json_output: true
     json_include_output_property: true
-    output_timeout: 2000
-    syslog_output:
-      enabled: false
-    stdout_output:
-      enabled: true
-    file_output:
-      enabled: false
     priority: debug
-    time_format_iso_8601: true
+    outputs:
+      - name: stdout
+        enabled: true
   falco_rules.yaml: |
-    - rule: Example Suspicious Shell
-      desc: Detect shell runs in container
-      condition: evt.type=open and proc.name in (bash,sh,zsh)
-      output: "Suspicious shell (user=%user.name command=%proc.cmdline)"
+    # --- Falco Default Rules for Container Runtime Security ---
+    - rule: Terminal shell in container
+      desc: Detect shell spawned inside a container
+      condition: container.id != host and proc.name in (bash, sh, zsh, ksh)
+      output: >
+        Shell spawned in container (user=%user.name container=%container.id command=%proc.cmdline)
       priority: WARNING
+      tags: [container, shell]
+
+    - rule: Write below binary dir
+      desc: Detect any write below /bin or /usr/bin
+      condition: evt.type in (open, creat) and evt.dir = < and fd.name startswith /bin
+      output: >
+        File written below binary dir (file=%fd.name user=%user.name command=%proc.cmdline)
+      priority: CRITICAL
+      tags: [filesystem, mitre_execution]
+
+    - rule: Privileged container started
+      desc: Detect privileged container creation
+      condition: container.privileged=true
+      output: Privileged container started (container=%container.id image=%container.image.repository)
+      priority: WARNING
+      tags: [container, privilege]
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: falco
   namespace: falco
+  labels:
+    app: falco
 spec:
   selector:
     matchLabels:
@@ -72,80 +76,149 @@ spec:
     spec:
       serviceAccountName: falco
       hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       tolerations:
         - operator: Exists
+      containers:
+        - name: falco-driver-loader
+          image: falco-driver-loader:0.41.3
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 50Mi
+            limits:
+              memory: 200Mi
+          env:
+            - name: FALCO_BPF_PROBE
+              value: "/root/.falco/falco-bpf.o"
+          volumeMounts:
+            - name: modules
+              mountPath: /lib/modules
+            - name: usr
+              mountPath: /usr
+            - name: falco-config
+              mountPath: /etc/falco
+        - name: falco
+          image: falco:0.41.3
+          securityContext:
+            privileged: true
+          args:
+            - /usr/bin/falco
+            - -r
+            - /etc/falco/falco_rules.yaml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              memory: 500Mi
+          volumeMounts:
+            - name: modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: usr
+              mountPath: /usr
+              readOnly: true
+            - name: falco-config
+              mountPath: /etc/falco
+              readOnly: true
       volumes:
-        - name: proc
-          hostPath:
-            path: /proc
-        - name: sys
-          hostPath:
-            path: /sys
-        - name: dev
-          hostPath:
-            path: /dev
-        - name: lib-modules
+        - name: modules
           hostPath:
             path: /lib/modules
-        - name: boot
+        - name: usr
           hostPath:
-            path: /boot
-        - name: containerd-sock
-          hostPath:
-            path: /run/containerd/containerd.sock
+            path: /usr
         - name: falco-config
           configMap:
             name: falco-config
-      initContainers:
-        - name: falco-driver-loader
-          image: falcosecurity/falco-driver-loader:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "modern-bpf"
-          volumeMounts:
-            - name: boot
-              mountPath: /host/boot
-              readOnly: true
-            - name: lib-modules
-              mountPath: /host/lib/modules
-            - name: proc
-              mountPath: /host/proc
-              readOnly: true
-          command: ["/bin/bash", "-c"]
-          args:
-            - >
-              falco-driver-loader modern-bpf || true;
-      containers:
-        - name: falco
-          image: falcosecurity/falco:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-            runAsUser: 0
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "modern-bpf"
-            - name: FALCO_CONTAINERD_SOCKET
-              value: "/run/containerd/containerd.sock"
-          volumeMounts:
-            - name: proc
-              mountPath: /host/proc
-              readOnly: true
-            - name: sys
-              mountPath: /host/sys
-              readOnly: true
-            - name: dev
-              mountPath: /host/dev
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: boot
-              mountPath: /host/boot
-              readOnly: true
-            - name: containerd-sock
-              mountPath: /run/containerd/containerd.sock
-            - name: falco-config
-              mountPath: /etc/falco
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco
+  namespace: falco
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: falco-cluster-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: falco-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: falco
+    namespace: falco
+```
+
+---
+
+### 🚀 **Apply the manifest**
+
+```bash
+kubectl apply -f falco-daemonset-containerd-ebpf.yaml
+```
+
+Check pods:
+
+```bash
+kubectl -n falco get pods -o wide
+```
+
+---
+
+### 📜 **Check logs**
+
+```bash
+kubectl -n falco logs -f <falco-pod-name> -c falco
+```
+
+You should see:
+
+```
+Loading rules from file /etc/falco/falco_rules.yaml
+Falco initialized with eBPF driver
+```
+
+---
+
+### 🧪 **Test**
+
+```bash
+kubectl run test-shell --image=busybox -it -- sh
+```
+
+Inside:
+
+```bash
+sh
+```
+
+Then exit and check:
+
+```bash
+kubectl -n falco logs -f <falco-pod-name> -c falco | grep "Shell spawned"
+```
+
+You’ll see Falco detect a shell process in a container.
+
+---
+
+Would you like me to modify this YAML to **use your locally available Falco images from your private registry (Harbor)** instead of the public ones? That way, it will run fully offline in your cluster.
