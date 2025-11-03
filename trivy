@@ -1,0 +1,207 @@
+Perfect — you want to:
+✅ Run **Trivy** as a **system-level service on the master node** (not a DaemonSet),
+✅ Make it scan **all namespaces and containers** in your Kubernetes cluster,
+✅ And configure a **fixed local DB path** (for offline or cached use).
+
+Let’s do that in a clean, professional way 👇
+
+---
+
+## 🧩 Overview
+
+You’ll:
+
+1. Create a dedicated folder for Trivy’s database and cache.
+2. Configure system-wide environment variables.
+3. Create a systemd service to run Trivy scans periodically or on demand.
+4. Make the scan cover all namespaces.
+5. Store the report in a file (e.g., `/var/log/trivy/`).
+
+---
+
+## ⚙️ Step 1 – Prepare directories
+
+On your master node:
+
+```bash
+mkdir -p /root/.cache/trivy
+mkdir -p /var/log/trivy
+```
+
+If you already have a database copied from another server, place it in `/root/.cache/trivy/db`.
+
+---
+
+## ⚙️ Step 2 – Set environment variables
+
+Edit root’s environment file so that Trivy always uses these defaults:
+
+```bash
+vi /etc/profile.d/trivy_env.sh
+```
+
+Add:
+
+```bash
+export TRIVY_CACHE_DIR=/root/.cache/trivy
+export TRIVY_DB_REPOSITORY=/root/.cache/trivy/db
+export TRIVY_SKIP_UPDATE=true
+export TRIVY_INSECURE=true
+export TRIVY_OFFLINE_SCAN=true
+```
+
+Then reload:
+
+```bash
+source /etc/profile.d/trivy_env.sh
+```
+
+To confirm:
+
+```bash
+echo $TRIVY_CACHE_DIR
+```
+
+---
+
+## ⚙️ Step 3 – Create a Trivy scan script
+
+Create a script that will scan the entire cluster and store results in `/var/log/trivy`.
+
+```bash
+vi /usr/local/bin/trivy-cluster-scan.sh
+```
+
+Paste this:
+
+```bash
+#!/usr/bin/env bash
+
+DATE=$(date +"%Y-%m-%d_%H-%M")
+LOG_DIR="/var/log/trivy"
+REPORT_FILE="$LOG_DIR/trivy_report_$DATE.html"
+
+echo "Starting Trivy scan for all namespaces..."
+trivy k8s --kubeconfig /root/.kube/config \
+  --report summary \
+  --format html \
+  --cache-dir /root/.cache/trivy \
+  --skip-db-update \
+  --output "$REPORT_FILE"
+
+echo "Trivy scan completed. Report saved at $REPORT_FILE"
+```
+
+Make it executable:
+
+```bash
+chmod +x /usr/local/bin/trivy-cluster-scan.sh
+```
+
+---
+
+## ⚙️ Step 4 – Create a systemd service
+
+This lets you start Trivy as a service or set it to run at boot.
+
+```bash
+vi /etc/systemd/system/trivy-scan.service
+```
+
+Add:
+
+```ini
+[Unit]
+Description=Trivy Kubernetes Cluster Scan Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/trivy-cluster-scan.sh
+Restart=on-failure
+User=root
+Environment="TRIVY_CACHE_DIR=/root/.cache/trivy"
+Environment="TRIVY_SKIP_UPDATE=true"
+Environment="TRIVY_OFFLINE_SCAN=true"
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start it:
+
+```bash
+systemctl daemon-reload
+systemctl enable trivy-scan.service
+systemctl start trivy-scan.service
+```
+
+Check status:
+
+```bash
+systemctl status trivy-scan.service
+```
+
+---
+
+## ⚙️ Step 5 – View or schedule reports
+
+To check recent output:
+
+```bash
+ls -ltr /var/log/trivy/
+```
+
+To view the latest HTML report:
+
+```bash
+cat /var/log/trivy/trivy_report_*.html
+```
+
+To run periodically (e.g., daily at midnight), create a cron job:
+
+```bash
+crontab -e
+```
+
+Add:
+
+```
+0 0 * * * /usr/local/bin/trivy-cluster-scan.sh
+```
+
+---
+
+## ⚙️ Step 6 – Verify full-cluster scanning
+
+Trivy’s `k8s` subcommand uses your kubeconfig to scan all namespaces.
+
+To manually test:
+
+```bash
+trivy k8s --kubeconfig /root/.kube/config --report summary --skip-db-update cluster
+```
+
+You should see output like:
+
+```
+Target: kube-system/kube-proxy
+Target: default/myapp
+...
+```
+
+---
+
+## ✅ Summary
+
+| Purpose        | Path / Setting                           |
+| -------------- | ---------------------------------------- |
+| Cache & DB     | `/root/.cache/trivy`                     |
+| Logs & Reports | `/var/log/trivy/`                        |
+| Config file    | `/etc/profile.d/trivy_env.sh`            |
+| Scan script    | `/usr/local/bin/trivy-cluster-scan.sh`   |
+| Service        | `/etc/systemd/system/trivy-scan.service` |
+
+---
+
+Would you like me to modify this setup so that it **exposes the report as a web service (via Nginx)** on your master node (so you can open `http://master-ip:8080/trivy-report.html`)?
