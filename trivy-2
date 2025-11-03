@@ -1,0 +1,384 @@
+Perfect ✅ — below is the **complete, ready-to-use setup** for your on-prem Kubernetes master node.
+It includes:
+
+* The **Trivy cluster scan script** (namespace-wise + cluster summary)
+* A **systemd service**
+* A **7-day cleanup** of old reports
+* Pre-set **offline DB path** (`/root/.cache/trivy/db`)
+
+You can copy and paste these files exactly as they are 👇
+
+---
+
+## 🧩 1. Environment File — `/etc/profile.d/trivy_env.sh`
+
+```bash
+#!/usr/bin/env bash
+# Environment variables for Trivy offline scans
+
+export TRIVY_CACHE_DIR="/root/.cache/trivy"
+export TRIVY_SKIP_UPDATE="true"
+export TRIVY_OFFLINE_SCAN="true"
+export KUBECONFIG="/root/.kube/config"
+```
+
+```bash
+chmod +x /etc/profile.d/trivy_env.sh
+source /etc/profile.d/trivy_env.sh
+```
+
+---
+
+## 🧩 2. Cluster Scan Script — `/usr/local/bin/trivy-cluster-scan.sh`
+
+```bash
+#!/usr/bin/env bash
+
+# ======================================================
+# Trivy Kubernetes Cluster Scan - Namespace + Summary
+# ======================================================
+
+DATE=$(date +"%Y-%m-%d_%H-%M")
+LOG_DIR="/var/log/trivy"
+CACHE_DIR="/root/.cache/trivy"
+KUBECONFIG="/root/.kube/config"
+
+mkdir -p "$LOG_DIR"
+
+SUMMARY_REPORT="$LOG_DIR/trivy_cluster_summary_${DATE}.txt"
+SUMMARY_HTML="$LOG_DIR/trivy_cluster_summary_${DATE}.html"
+
+echo "=====================================================" | tee "$SUMMARY_REPORT"
+echo " Trivy Kubernetes Cluster Scan - $DATE" | tee -a "$SUMMARY_REPORT"
+echo "=====================================================" | tee -a "$SUMMARY_REPORT"
+echo "" | tee -a "$SUMMARY_REPORT"
+
+# ------------------------------------------------------
+# 1️⃣  Scan each namespace individually
+# ------------------------------------------------------
+
+for ns in $(kubectl get ns --no-headers | awk '{print $1}'); do
+    echo "[$(date)] Scanning namespace: $ns" | tee -a "$SUMMARY_REPORT"
+
+    NS_HTML_REPORT="$LOG_DIR/trivy_${ns}_report_${DATE}.html"
+    NS_TXT_REPORT="$LOG_DIR/trivy_${ns}_report_${DATE}.txt"
+
+    /usr/local/bin/trivy k8s --kubeconfig "$KUBECONFIG" \
+      --namespace "$ns" \
+      --report summary \
+      --format html \
+      --cache-dir "$CACHE_DIR" \
+      --skip-db-update \
+      --offline-scan \
+      --output "$NS_HTML_REPORT" 2>&1 | tee -a "$NS_TXT_REPORT"
+
+    echo "[$(date)] ✅ Completed namespace: $ns" | tee -a "$SUMMARY_REPORT"
+    echo "Report saved: $NS_HTML_REPORT" | tee -a "$SUMMARY_REPORT"
+    echo "" | tee -a "$SUMMARY_REPORT"
+done
+
+# ------------------------------------------------------
+# 2️⃣  Cluster-wide summary
+# ------------------------------------------------------
+echo "[$(date)] Starting cluster-wide summary scan..." | tee -a "$SUMMARY_REPORT"
+
+/usr/local/bin/trivy k8s --kubeconfig "$KUBECONFIG" \
+  --report summary \
+  --format html \
+  --cache-dir "$CACHE_DIR" \
+  --skip-db-update \
+  --offline-scan \
+  --output "$SUMMARY_HTML" 2>&1 | tee -a "$SUMMARY_REPORT"
+
+if [ $? -eq 0 ]; then
+  echo "[$(date)] ✅ Cluster-wide scan completed successfully." | tee -a "$SUMMARY_REPORT"
+  echo "Summary Report: $SUMMARY_HTML" | tee -a "$SUMMARY_REPORT"
+else
+  echo "[$(date)] ❌ Cluster-wide scan failed!" | tee -a "$SUMMARY_REPORT"
+fi
+
+# ------------------------------------------------------
+# 3️⃣  Cleanup old reports (older than 7 days)
+# ------------------------------------------------------
+find "$LOG_DIR" -type f -mtime +7 -name "trivy_*" -exec rm -f {} \;
+echo "[$(date)] 🧹 Old reports older than 7 days deleted." | tee -a "$SUMMARY_REPORT"
+
+echo "All reports are stored in $LOG_DIR"
+echo "Scan completed at $(date)" | tee -a "$SUMMARY_REPORT"
+```
+
+```bash
+chmod +x /usr/local/bin/trivy-cluster-scan.sh
+```
+
+---
+
+## 🧩 3. Systemd Service — `/etc/systemd/system/trivy-scan.service`
+
+```ini
+[Unit]
+Description=Trivy Kubernetes Cluster Scan Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/trivy-cluster-scan.sh
+Environment="TRIVY_CACHE_DIR=/root/.cache/trivy"
+Environment="TRIVY_SKIP_UPDATE=true"
+Environment="TRIVY_OFFLINE_SCAN=true"
+Environment="KUBECONFIG=/root/.kube/config"
+WorkingDirectory=/var/log/trivy
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## 🧩 4. Optional Daily Timer — `/etc/systemd/system/trivy-scan.timer`
+
+```ini
+[Unit]
+Description=Run Trivy Cluster Scan Daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+---
+
+## 🧩 5. Final Setup Commands
+
+```bash
+# Create folders
+mkdir -p /var/log/trivy
+mkdir -p /root/.cache/trivy/db
+
+# Reload services
+systemctl daemon-reload
+
+# Enable + start Trivy scan service
+systemctl enable trivy-scan.service
+systemctl start trivy-scan.service
+
+# (Optional) Enable daily scans
+systemctl enable trivy-scan.timer
+systemctl start trivy-scan.timer
+```
+
+---
+
+## 🧩 6. Check and Verify
+
+Check service:
+
+```bash
+systemctl status trivy-scan.service
+```
+
+View logs:
+
+```bash
+journalctl -u trivy-scan.service -e
+```
+
+List reports:
+
+```bash
+ls -ltr /var/log/trivy/
+```
+
+---
+
+## ✅ Expected Output Example
+
+After a successful scan:
+
+```
+/var/log/trivy/
+├── trivy_cluster_summary_2025-11-04_06-30.html
+├── trivy_default_report_2025-11-04_06-30.html
+├── trivy_kube-system_report_2025-11-04_06-30.html
+└── trivy_springboot-bau_report_2025-11-04_06-30.html
+```
+
+Older files (>7 days) are automatically deleted every time the scan runs.
+
+---
+
+Would you like me to extend this setup so the report is also **exposed via a lightweight Nginx web service** (e.g., `http://<master-IP>:8080/trivy/`)?
+
+
+
+
+
+
+
+
+Perfect 👏 — let’s now extend your **Trivy Kubernetes cluster scan setup** so that:
+
+✅ All HTML reports are automatically hosted on your **master node via Nginx**,
+✅ You can access them from a browser like `http://<master-node-ip>:8080/trivy/`,
+✅ And everything still runs offline and via systemd.
+
+---
+
+## 🧩 Step 1 — Install and enable Nginx
+
+### On RHEL / CentOS / Rocky:
+
+```bash
+yum install -y nginx
+systemctl enable nginx --now
+```
+
+### On Ubuntu / Debian:
+
+```bash
+apt install -y nginx
+systemctl enable nginx --now
+```
+
+---
+
+## 🧩 Step 2 — Create directory for Trivy reports (if not already)
+
+```bash
+mkdir -p /var/log/trivy
+```
+
+---
+
+## 🧩 Step 3 — Link Trivy report directory to Nginx web root
+
+Default Nginx root is `/usr/share/nginx/html`.
+We’ll make a subfolder `/usr/share/nginx/html/trivy` that points to your logs:
+
+```bash
+ln -s /var/log/trivy /usr/share/nginx/html/trivy
+```
+
+Verify:
+
+```bash
+ls -l /usr/share/nginx/html/trivy
+```
+
+You should see your Trivy HTML reports there.
+
+---
+
+## 🧩 Step 4 — Create an Nginx config file
+
+Create a simple configuration file for Trivy:
+
+```bash
+vi /etc/nginx/conf.d/trivy.conf
+```
+
+Paste this 👇
+
+```nginx
+server {
+    listen 8080;
+    server_name _;
+
+    access_log /var/log/nginx/trivy_access.log;
+    error_log /var/log/nginx/trivy_error.log;
+
+    location /trivy/ {
+        autoindex on;
+        alias /var/log/trivy/;
+        index index.html;
+        add_header Cache-Control no-cache;
+    }
+}
+```
+
+Then test and reload Nginx:
+
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+---
+
+## 🧩 Step 5 — Verify from browser
+
+From your local machine or any system that can reach the master node:
+
+Open in a browser:
+
+```
+http://<master-node-IP>:8080/trivy/
+```
+
+You should see a directory listing like this:
+
+```
+trivy_cluster_summary_2025-11-04_06-30.html
+trivy_default_report_2025-11-04_06-30.html
+trivy_kube-system_report_2025-11-04_06-30.html
+```
+
+Click any HTML file to view the scan report.
+
+---
+
+## 🧩 Step 6 — (Optional) Restrict Access for Security
+
+If your master node is shared, you can restrict access to localhost or specific IPs.
+
+Example (allow only your internal subnet):
+
+```nginx
+location /trivy/ {
+    allow 10.60.0.0/16;
+    deny all;
+    autoindex on;
+    alias /var/log/trivy/;
+}
+```
+
+Then reload Nginx again:
+
+```bash
+systemctl reload nginx
+```
+
+---
+
+## ✅ Final Setup Summary
+
+| Component             | Path / Command                           | Description                              |
+| --------------------- | ---------------------------------------- | ---------------------------------------- |
+| **Trivy script**      | `/usr/local/bin/trivy-cluster-scan.sh`   | Scans all namespaces and creates reports |
+| **Reports directory** | `/var/log/trivy`                         | Stores `.html` reports                   |
+| **Nginx alias**       | `/usr/share/nginx/html/trivy`            | Serves reports via web                   |
+| **Web access URL**    | `http://<master-IP>:8080/trivy/`         | Browse reports                           |
+| **Systemd service**   | `/etc/systemd/system/trivy-scan.service` | Runs Trivy                               |
+| **Timer**             | `/etc/systemd/system/trivy-scan.timer`   | Daily scan scheduler                     |
+
+---
+
+### Example Directory Listing from Browser
+
+```
+📁 http://10.57.12.118:8080/trivy/
+
+├── trivy_default_report_2025-11-04_06-30.html
+├── trivy_kube-system_report_2025-11-04_06-30.html
+├── trivy_springboot-bau_report_2025-11-04_06-30.html
+└── trivy_cluster_summary_2025-11-04_06-30.html
+```
+
+---
+
+Would you like me to add **auto-index styling (HTML table view)** so the directory listing looks clean and modern instead of plain text in the browser? (It would still be served locally via Nginx.)
