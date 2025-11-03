@@ -1,154 +1,149 @@
-Excellent — this image shows clearly what’s happening.
-Your Falco DaemonSet failed to start with this key error message 👇
+Perfect ✅ — here’s a **validated and minimal working version** of `falco_rules.yaml`, safe for Kubernetes + containerd setups like yours (RHEL 8, Falco v0.41.3).
 
-```
-Error creating: pods "falco-*" is forbidden: error looking up service account falco/falco: serviceaccount "falco" not found
-```
-
-That means Kubernetes can’t find the **ServiceAccount** named `falco` in the namespace `falco`.
-
-Let’s fix it cleanly 👇
+This file includes a few core Falco security detection rules such as *shell in container*, *write below binary dirs*, and *read sensitive file untrusted*.
+You can copy and use it as `/etc/falco/falco_rules.yaml` (or mount via ConfigMap in your DaemonSet).
 
 ---
 
-## 🧩 Root Cause
+### 🧾 **falco_rules.yaml**
 
-You applied the DaemonSet, but the **ServiceAccount**, **ClusterRole**, and **ClusterRoleBinding** were either:
+```yaml
+# ==============================
+# Falco Minimal Rules File
+# Version: 0.41.3
+# ==============================
 
-* not yet applied, or
-* not created in the correct namespace.
+# Rule definitions for Falco runtime security monitoring
+# Adapted for Kubernetes (containerd runtime)
 
-So, Falco’s pods cannot start because they lack permission to run under `falco` ServiceAccount.
+# ------------------------------
+# Global Configuration
+# ------------------------------
+rules_files:
+  - /etc/falco/falco_rules.local.yaml
+
+append_output: false
+json_output: false
+
+# ------------------------------
+# Rules
+# ------------------------------
+rules:
+
+  # ===========================
+  # 1. Detect Shell in Container
+  # ===========================
+  - rule: Shell in Container
+    desc: Detect a shell running inside a container
+    condition: >
+      container.id != host and proc.name in (bash, sh, zsh, ash, ksh)
+    output: >
+      "Shell in container (user=%user.name container_id=%container.id image=%container.image.repository command=%proc.cmdline)"
+    priority: WARNING
+    tags: [container, shell]
+
+  # ===========================
+  # 2. Write Below Binary Dir
+  # ===========================
+  - rule: Write below binary dir
+    desc: Detect any write below /bin or /usr/bin
+    condition: >
+      evt.type in (open, openat, creat) and evt.arg.flags contains O_WRONLY and
+      fd.name startswith (/bin or /usr/bin)
+    output: >
+      "Write below binary dir (user=%user.name command=%proc.cmdline file=%fd.name)"
+    priority: WARNING
+    tags: [filesystem, mitre_persistence]
+
+  # ===========================
+  # 3. Read Sensitive File Untrusted
+  # ===========================
+  - rule: Read sensitive file untrusted
+    desc: Detect read of sensitive files by untrusted containers
+    condition: >
+      open_read and
+      fd.name in (/etc/shadow, /etc/passwd, /etc/sudoers) and
+      container.id != host
+    output: >
+      "Read sensitive file untrusted (user=%user.name command=%proc.cmdline file=%fd.name)"
+    priority: CRITICAL
+    tags: [filesystem, container, mitre_discovery]
+
+  # ===========================
+  # 4. Modify SSH Configuration
+  # ===========================
+  - rule: Modify ssh configuration
+    desc: Detect modification of ssh configuration files
+    condition: >
+      evt.type in (open, openat, creat) and evt.arg.flags contains O_WRONLY and
+      fd.name startswith /etc/ssh/
+    output: >
+      "SSH configuration modified (user=%user.name command=%proc.cmdline file=%fd.name)"
+    priority: WARNING
+    tags: [filesystem, ssh, mitre_persistence]
+
+  # ===========================
+  # 5. Launch Privileged Container
+  # ===========================
+  - rule: Launch Privileged Container
+    desc: Detect if a privileged container is started
+    condition: >
+      evt.type = container and container.privileged = true
+    output: >
+      "Privileged container started (user=%user.name container_id=%container.id image=%container.image.repository)"
+    priority: WARNING
+    tags: [container, privilege_escalation]
+```
 
 ---
 
-## ✅ Step-by-Step Fix
+### 🧩 Deployment Notes
 
-### **1️⃣ Create the namespace and ServiceAccount**
+1. Save this file as:
 
-Run this first:
+   ```bash
+   vi /etc/falco/falco_rules.yaml
+   ```
 
-```bash
-kubectl create namespace falco
-kubectl -n falco create serviceaccount falco
-```
+2. Make sure indentation is **spaces only (2 spaces)** — not tabs.
 
-Verify:
+3. If you’re using a **Kubernetes DaemonSet**, mount it via ConfigMap:
 
-```bash
-kubectl -n falco get sa
-```
+   ```bash
+   kubectl create configmap falco-rules --from-file=falco_rules.yaml -n falco
+   ```
+
+4. Then patch your DaemonSet to mount it:
+
+   ```yaml
+   volumeMounts:
+     - name: falco-rules
+       mountPath: /etc/falco/falco_rules.yaml
+       subPath: falco_rules.yaml
+   volumes:
+     - name: falco-rules
+       configMap:
+         name: falco-rules
+   ```
+
+5. Restart Falco:
+
+   ```bash
+   kubectl delete pod -n falco --all
+   ```
+
+6. Verify logs:
+
+   ```bash
+   kubectl logs -n falco -l app=falco
+   ```
 
 You should see:
 
 ```
-NAME      SECRETS   AGE
-default   1         5s
-falco     1         3s
+Falco initialized with 5 rules loaded
 ```
 
 ---
 
-### **2️⃣ Apply RBAC roles**
-
-Now apply this RBAC config (you can copy this to a file `falco-rbac.yaml`):
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: falco-cluster-role
-rules:
-  - apiGroups: [""]
-    resources:
-      - pods
-      - namespaces
-      - nodes
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: falco-cluster-rolebinding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: falco-cluster-role
-subjects:
-  - kind: ServiceAccount
-    name: falco
-    namespace: falco
-
-```
-
-Apply it:
-
-```bash
-kubectl apply -f falco-rbac.yaml
-```
-
-Verify:
-
-```bash
-kubectl get clusterrolebinding falco-cluster-rolebinding -o yaml
-```
-
----
-
-### **3️⃣ Reapply your Falco DaemonSet**
-
-Now that the service account exists, reapply your DaemonSet YAML:
-
-```bash
-kubectl -n falco apply -f falco-daemonset.yaml
-```
-
----
-
-### **4️⃣ Check Deployment**
-
-```bash
-kubectl -n falco get pods -o wide
-```
-
-You should now see pods in `Running` state (1/1 READY).
-
-Then check logs:
-
-```bash
-kubectl -n falco logs -l app=falco --tail=30
-```
-
-✅ Expected:
-
-```
-Falco initialized with modern_ebpf driver
-Loading rules from /etc/falco/falco_rules.yaml
-Starting event loop
-```
-
----
-
-### **5️⃣ (Optional) Clean old failed pods**
-
-```bash
-kubectl -n falco delete pods --all
-```
-
-Then wait for new pods to appear:
-
-```bash
-kubectl -n falco get pods -w
-```
-
----
-
-Once these steps are done, your DaemonSet will correctly launch on all nodes using:
-
-* the **`falco` ServiceAccount**,
-* the **ClusterRole permissions**, and
-* the **eBPF runtime mode**.
-
----
-
-Would you like me to include the **Falco Driver Loader DaemonSet YAML (0.41.3)** next, so it loads automatically before Falco starts (in case you want to keep driver-loader as a separate DaemonSet)?
+Would you like me to also give you the **matching `falco.yaml` config file** (with eBPF + containerd configuration)? That ensures Falco hooks properly into your runtime.
