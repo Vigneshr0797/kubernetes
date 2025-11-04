@@ -1,0 +1,22 @@
+[root@EQVLWSO2APSIT15 system]# pwd
+/etc/systemd/system
+[root@EQVLWSO2APSIT15 system]# cat trivy-scan.service
+[Unit]
+Description=Trivy Kubernetes Cluster Scan Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/trivy-cluster-scan.sh
+Environment="TRIVY_CACHE_DIR=/root/.cache/trivy"
+Environment="TRIVY_SKIP_UPDATE=true"
+Environment="TRIVY_OFFLINE_SCAN=true"
+Environment="KUBECONFIG=/root/.kube/config"
+WorkingDirectory=/var/log/trivy
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=multi-user.target
+
+
