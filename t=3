@@ -1,0 +1,285 @@
+Excellent — this image confirms everything we needed 👏
+
+From your terminal, we can now see the **exact flag list** your Trivy build supports, and that version `v0.67.2`:
+
+* ❌ Doesn’t support `--skip-db-update`
+* ❌ Doesn’t support `--offline-scan`
+* ❌ Doesn’t support `--format html` (only `table`, `json`, `template`, `cyclonedx`, `spdx-json`, `spdx`, `cosign-vuln`)
+
+That’s why you’re getting:
+
+```
+Fatal error: unknown flag --skip-db-update
+Fatal error: invalid argument "html" for "--format" flag
+```
+
+---
+
+✅ **Good news:** you can still run full scans, but you must use **table or json format**.
+We’ll use `table` for readability.
+
+---
+
+## 🧩 Working Namespace Scan Command (for Trivy v0.67.2)
+
+```bash
+kubectl get all -n springboot-bau -o yaml > /tmp/springboot-bau.yaml
+
+trivy config \
+  --cache-dir /root/.cache/trivy \
+  --format table \
+  --output /var/log/trivy/trivy_springboot-bau_report_$(date +"%Y-%m-%d_%H-%M").txt \
+  /tmp/springboot-bau.yaml
+```
+
+✅ Output:
+A plain-text report stored here:
+
+```
+/var/log/trivy/trivy_springboot-bau_report_<timestamp>.txt
+```
+
+---
+
+## 🧩 If you prefer JSON format (for exporting data to dashboards later)
+
+```bash
+trivy config \
+  --cache-dir /root/.cache/trivy \
+  --format json \
+  --output /var/log/trivy/trivy_springboot-bau_report_$(date +"%Y-%m-%d_%H-%M").json \
+  /tmp/springboot-bau.yaml
+```
+
+Then you can later render this JSON into HTML using any simple parser (I can help you generate one if you’d like).
+
+---
+
+## 🧩 Optional: Create a simple wrapper script
+
+Let’s make `/usr/local/bin/trivy-ns-scan.sh`
+so you can run:
+
+```bash
+trivy-ns-scan.sh springboot-bau
+```
+
+### Script content:
+
+```bash
+#!/usr/bin/env bash
+NS="$1"
+if [ -z "$NS" ]; then
+  echo "Usage: trivy-ns-scan.sh <namespace>"
+  exit 1
+fi
+
+CACHE_DIR="/root/.cache/trivy"
+OUT_DIR="/var/log/trivy"
+DATE=$(date +"%Y-%m-%d_%H-%M")
+
+mkdir -p "$OUT_DIR"
+
+kubectl get all -n "$NS" -o yaml > /tmp/${NS}.yaml
+
+trivy config \
+  --cache-dir "$CACHE_DIR" \
+  --format table \
+  --output "$OUT_DIR/trivy_${NS}_report_${DATE}.txt" \
+  /tmp/${NS}.yaml
+
+rm -f /tmp/${NS}.yaml
+
+echo "✅ Report generated: $OUT_DIR/trivy_${NS}_report_${DATE}.txt"
+```
+
+Make it executable:
+
+```bash
+chmod +x /usr/local/bin/trivy-ns-scan.sh
+```
+
+Now just run:
+
+```bash
+trivy-ns-scan.sh <namespace>
+```
+
+---
+
+## 🧾 Summary
+
+| Task                | Command                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Export manifests    | `kubectl get all -n <ns> -o yaml > /tmp/<ns>.yaml`                                                                        |
+| Scan (table output) | `trivy config --cache-dir /root/.cache/trivy --format table --output /var/log/trivy/trivy_<ns>_report.txt /tmp/<ns>.yaml` |
+| JSON report         | `--format json`                                                                                                           |
+| Wrapper             | `trivy-ns-scan.sh <namespace>`                                                                                            |
+
+---
+
+Would you like me to show how to **convert your `.json` Trivy reports into HTML dashboard format** (so you can still view them in the browser like before)?
+
+
+
+
+
+
+
+
+
+
+
+
+
+Perfect 👏 — let’s now make your **Trivy JSON reports viewable as HTML dashboards** (so you can open them in a browser, similar to the HTML format in newer Trivy versions).
+
+We’ll keep everything **offline**, fully compatible with your current **Trivy v0.67.2**.
+
+---
+
+## 🧩 Step 1 — Generate JSON report (instead of table)
+
+Run this for any namespace:
+
+```bash
+kubectl get all -n springboot-bau -o yaml > /tmp/springboot-bau.yaml
+
+trivy config \
+  --cache-dir /root/.cache/trivy \
+  --format json \
+  --output /var/log/trivy/trivy_springboot-bau_report_$(date +"%Y-%m-%d_%H-%M").json \
+  /tmp/springboot-bau.yaml
+```
+
+You’ll get a file like:
+
+```
+/var/log/trivy/trivy_springboot-bau_report_2025-11-04_06-50.json
+```
+
+---
+
+## 🧩 Step 2 — Create an HTML converter script
+
+Create file:
+
+```bash
+vi /usr/local/bin/trivy-json-to-html.sh
+```
+
+Paste this full script 👇
+
+```bash
+#!/usr/bin/env bash
+# ==============================================
+# Convert Trivy JSON report to HTML dashboard
+# Compatible with Trivy v0.67.2
+# ==============================================
+
+INPUT_JSON="$1"
+OUTPUT_HTML="${INPUT_JSON%.json}.html"
+
+if [ -z "$INPUT_JSON" ]; then
+  echo "Usage: trivy-json-to-html.sh <report.json>"
+  exit 1
+fi
+
+if [ ! -f "$INPUT_JSON" ]; then
+  echo "❌ File not found: $INPUT_JSON"
+  exit 1
+fi
+
+# Start HTML header
+cat <<EOF > "$OUTPUT_HTML"
+<html>
+<head>
+<title>Trivy Report - $(basename "$INPUT_JSON")</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; background: #f8f9fa; }
+h1 { color: #2c3e50; }
+table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #fff; }
+th, td { border: 1px solid #ccc; padding: 8px; text-align: left; font-size: 14px; }
+th { background: #34495e; color: #fff; }
+tr:nth-child(even) { background: #f2f2f2; }
+.critical { background: #ff6b6b; color: #fff; }
+.high { background: #f39c12; color: #fff; }
+.medium { background: #f1c40f; color: #000; }
+.low { background: #2ecc71; color: #fff; }
+</style>
+</head>
+<body>
+<h1>Trivy Security Report</h1>
+<p><b>Source JSON:</b> $(basename "$INPUT_JSON")</p>
+<table>
+<tr><th>Target</th><th>Package</th><th>Vulnerability ID</th><th>Severity</th><th>Installed Version</th><th>Fixed Version</th><th>Title</th></tr>
+EOF
+
+# Extract data from JSON
+jq -r '.Results[] | .Target as $target | .Vulnerabilities[]? | [$target, .PkgName, .VulnerabilityID, .Severity, .InstalledVersion, .FixedVersion, .Title] | @tsv' "$INPUT_JSON" | while IFS=$'\t' read -r target pkg vid sev inst fix title; do
+  sev_class=$(echo "$sev" | tr '[:upper:]' '[:lower:]')
+  echo "<tr class=\"$sev_class\"><td>$target</td><td>$pkg</td><td>$vid</td><td>$sev</td><td>$inst</td><td>$fix</td><td>$title</td></tr>" >> "$OUTPUT_HTML"
+done
+
+# End HTML footer
+cat <<EOF >> "$OUTPUT_HTML"
+</table>
+<p style="margin-top:20px;">Generated on $(date)</p>
+</body></html>
+EOF
+
+echo "✅ HTML report created: $OUTPUT_HTML"
+```
+
+Save and make executable:
+
+```bash
+chmod +x /usr/local/bin/trivy-json-to-html.sh
+```
+
+---
+
+## 🧩 Step 3 — Convert JSON to HTML
+
+Example:
+
+```bash
+trivy-json-to-html.sh /var/log/trivy/trivy_springboot-bau_report_2025-11-04_06-50.json
+```
+
+You’ll get:
+
+```
+/var/log/trivy/trivy_springboot-bau_report_2025-11-04_06-50.html
+```
+
+---
+
+## 🧩 Step 4 — View in browser
+
+If Nginx is configured:
+
+```
+http://<master-node-ip>:8080/trivy/trivy_springboot-bau_report_2025-11-04_06-50.html
+```
+
+You’ll see a clean table with colored severity levels:
+
+* 🔴 **Critical** — red
+* 🟠 **High** — orange
+* 🟡 **Medium** — yellow
+* 🟢 **Low** — green
+
+---
+
+## 🧾 Summary
+
+| Task                 | Command                                       |
+| -------------------- | --------------------------------------------- |
+| Generate JSON report | `trivy config --format json ...`              |
+| Convert to HTML      | `trivy-json-to-html.sh <json-file>`           |
+| View in browser      | `http://<master-ip>:8080/trivy/<report>.html` |
+
+---
+
+Would you like me to enhance this converter script to also generate an **index dashboard (summary HTML page)** that automatically lists and links all reports in `/var/log/trivy`?
