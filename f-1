@@ -1,354 +1,105 @@
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: falco
-  namespace: falco
-  labels:
-    app: falco
-spec:
-  selector:
-    matchLabels:
-      app: falco
-  template:
-    metadata:
-      labels:
-        app: falco
-    spec:
-      serviceAccountName: falco
-      hostPID: true
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      containers:
-        - name: falco
-          image: docker.io/falcosecurity/falco:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "/root/.falco/falco-bpf.o"
-          volumeMounts:
-            - name: falco-config
-              mountPath: /etc/falco
-            - name: dev-fs
-              mountPath: /host/dev
-            - name: proc-fs
-              mountPath: /host/proc
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr
-              mountPath: /host/usr
-              readOnly: true
-        - name: falco-driver-loader
-          image: docker.io/falcosecurity/falco-driver-loader:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "/root/.falco/falco-bpf.o"
-          volumeMounts:
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr
-              mountPath: /host/usr
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: var-falco
-              mountPath: /root/.falco
-            - name: etc-falco
-              mountPath: /etc/falco
-      volumes:
-        - name: falco-config
-          configMap:
-            name: falco-config
-        - name: dev-fs
-          hostPath:
-            path: /dev
-        - name: proc-fs
-          hostPath:
-            path: /proc
-        - name: boot-fs
-          hostPath:
-            path: /boot
-        - name: lib-modules
-          hostPath:
-            path: /lib/modules
-        - name: usr
-          hostPath:
-            path: /usr
-        - name: var-falco
-          hostPath:
-            path: /var/falco
-        - name: etc-falco
-          hostPath:
-            path: /etc/falco
+sudo mkdir -p /opt/trivy/bin
+cd /opt/trivy/bin
+
+curl -LO https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.tar.gz
+tar -xzf trivy_0.55.0_Linux-64bit.tar.gz
+sudo mv trivy /usr/local/bin/trivy
+sudo chmod +x /usr/local/bin/trivy
+
+trivy --version
+✅ You now have the official binary, no Docker image.
+
+🧰 2. Create a Shared Configuration (Optional)
+
+
+If you want all nodes to use a common config (e.g., DB path, cache, etc.):
+
+sudo mkdir -p /opt/trivy/data
+sudo tee /etc/trivy.yaml <<'EOF'
+cacheDir: /opt/trivy/data
+vulnType:
+  - os
+  - library
+ignoreUnfixed: true
+EOF
+📦 3. Create a SystemD Service for Continuous Runtime Scanning
+
+
+Each node can continuously scan all containers running on it using crictl.
 
 
 
+Create the service file:
+
+sudo tee /etc/systemd/system/trivy-runtime.service <<'EOF'
+[Unit]
+Description=Trivy Runtime Scanner
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/trivy fs --skip-db-update --format json --output /opt/trivy/scan-results.json /
+Restart=on-failure
+RestartSec=3600
+
+[Install]
+WantedBy=multi-user.target
+EOF
+Then enable and start:
+
+sudo systemctl daemon-reload
+sudo systemctl enable trivy-runtime
+sudo systemctl start trivy-runtime
+This will scan the node’s filesystem periodically and output a JSON report at /opt/trivy/scan-results.json.
+
+🔍 4. For Container Runtime (Containerd/CRI-O)
+
+
+You can directly scan active containers by enumerating them via crictl:
 
 
 
+Create a CronJob script at /usr/local/bin/trivy-scan-cri.sh:
+
+#!/bin/bash
+SCAN_DIR="/opt/trivy/scans"
+mkdir -p $SCAN_DIR
+date=$(date +%F_%T)
+
+for id in $(crictl ps -q); do
+  name=$(crictl inspect $id | grep name | head -1 | awk -F'"' '{print $4}')
+  echo "Scanning container: $name ($id)"
+  trivy fs --skip-db-update --format json --output "$SCAN_DIR/$name-$date.json" /run/containerd/io.containerd.runtime.v2.task/k8s.io/$id/rootfs
+done
+Make it executable:
+
+sudo chmod +x /usr/local/bin/trivy-scan-cri.sh
+Create a CronJob via system cron:
+
+sudo crontab -e
+Add:
+
+0 */6 * * * /usr/local/bin/trivy-scan-cri.sh
+This runs every 6 hours, scanning all running containers and storing results under /opt/trivy/scans.
+
+🧾 5. (Optional) Push Reports into Kubernetes for Visibility
 
 
+If you want reports visible in Kubernetes:
 
+kubectl create namespace trivy-reports
+Create this script /usr/local/bin/trivy-upload-k8s.sh:
 
-Perfect ✅ — here’s a **validated and minimal working version** of `falco_rules.yaml`, safe for Kubernetes + containerd setups like yours (RHEL 8, Falco v0.41.3).
+#!/bin/bash
+SCAN_DIR="/opt/trivy/scans"
+for file in $SCAN_DIR/*.json; do
+  name=$(basename $file .json)
+  kubectl create configmap $name --from-file=$file -n trivy-reports --dry-run=client -o yaml | kubectl apply -f -
+done
+Schedule it with cron:
 
-This file includes a few core Falco security detection rules such as *shell in container*, *write below binary dirs*, and *read sensitive file untrusted*.
-You can copy and use it as `/etc/falco/falco_rules.yaml` (or mount via ConfigMap in your DaemonSet).
+15 */6 * * * /usr/local/bin/trivy-upload-k8s.sh
+You can then view results in Kubernetes:
 
----
-
-### 🧾 **falco_rules.yaml**
-
-```yaml
-# ==============================
-# Falco Minimal Rules File
-# Version: 0.41.3
-# ==============================
-
-# Rule definitions for Falco runtime security monitoring
-# Adapted for Kubernetes (containerd runtime)
-
-# ------------------------------
-# Global Configuration
-# ------------------------------
-rules_files:
-  - /etc/falco/falco_rules.local.yaml
-
-append_output: false
-json_output: false
-
-# ------------------------------
-# Rules
-# ------------------------------
-rules:
-
-  # ===========================
-  # 1. Detect Shell in Container
-  # ===========================
-  - rule: Shell in Container
-    desc: Detect a shell running inside a container
-    condition: >
-      container.id != host and proc.name in (bash, sh, zsh, ash, ksh)
-    output: >
-      "Shell in container (user=%user.name container_id=%container.id image=%container.image.repository command=%proc.cmdline)"
-    priority: WARNING
-    tags: [container, shell]
-
-  # ===========================
-  # 2. Write Below Binary Dir
-  # ===========================
-  - rule: Write below binary dir
-    desc: Detect any write below /bin or /usr/bin
-    condition: >
-      evt.type in (open, openat, creat) and evt.arg.flags contains O_WRONLY and
-      fd.name startswith (/bin or /usr/bin)
-    output: >
-      "Write below binary dir (user=%user.name command=%proc.cmdline file=%fd.name)"
-    priority: WARNING
-    tags: [filesystem, mitre_persistence]
-
-  # ===========================
-  # 3. Read Sensitive File Untrusted
-  # ===========================
-  - rule: Read sensitive file untrusted
-    desc: Detect read of sensitive files by untrusted containers
-    condition: >
-      open_read and
-      fd.name in (/etc/shadow, /etc/passwd, /etc/sudoers) and
-      container.id != host
-    output: >
-      "Read sensitive file untrusted (user=%user.name command=%proc.cmdline file=%fd.name)"
-    priority: CRITICAL
-    tags: [filesystem, container, mitre_discovery]
-
-  # ===========================
-  # 4. Modify SSH Configuration
-  # ===========================
-  - rule: Modify ssh configuration
-    desc: Detect modification of ssh configuration files
-    condition: >
-      evt.type in (open, openat, creat) and evt.arg.flags contains O_WRONLY and
-      fd.name startswith /etc/ssh/
-    output: >
-      "SSH configuration modified (user=%user.name command=%proc.cmdline file=%fd.name)"
-    priority: WARNING
-    tags: [filesystem, ssh, mitre_persistence]
-
-  # ===========================
-  # 5. Launch Privileged Container
-  # ===========================
-  - rule: Launch Privileged Container
-    desc: Detect if a privileged container is started
-    condition: >
-      evt.type = container and container.privileged = true
-    output: >
-      "Privileged container started (user=%user.name container_id=%container.id image=%container.image.repository)"
-    priority: WARNING
-    tags: [container, privilege_escalation]
-```
-
----
-
-### 🧩 Deployment Notes
-
-1. Save this file as:
-
-   ```bash
-   vi /etc/falco/falco_rules.yaml
-   ```
-
-2. Make sure indentation is **spaces only (2 spaces)** — not tabs.
-
-3. If you’re using a **Kubernetes DaemonSet**, mount it via ConfigMap:
-
-   ```bash
-   kubectl create configmap falco-rules --from-file=falco_rules.yaml -n falco
-   ```
-
-4. Then patch your DaemonSet to mount it:
-
-   ```yaml
-   volumeMounts:
-     - name: falco-rules
-       mountPath: /etc/falco/falco_rules.yaml
-       subPath: falco_rules.yaml
-   volumes:
-     - name: falco-rules
-       configMap:
-         name: falco-rules
-   ```
-
-5. Restart Falco:
-
-   ```bash
-   kubectl delete pod -n falco --all
-   ```
-
-6. Verify logs:
-
-   ```bash
-   kubectl logs -n falco -l app=falco
-   ```
-
-You should see:
-
-```
-Falco initialized with 5 rules loaded
-```
-
----
-
-Would you like me to also give you the **matching `falco.yaml` config file** (with eBPF + containerd configuration)? That ensures Falco hooks properly into your runtime.
-
-
-
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: falco
-  namespace: falco
-  labels:
-    app: falco
-spec:
-  selector:
-    matchLabels:
-      app: falco
-  template:
-    metadata:
-      labels:
-        app: falco
-    spec:
-      serviceAccountName: falco
-      hostPID: true
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      containers:
-        - name: falco
-          image: docker.io/falcosecurity/falco:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "/root/.falco/falco-bpf.o"
-          volumeMounts:
-            - name: dev-fs
-              mountPath: /host/dev
-            - name: proc-fs
-              mountPath: /host/proc
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr
-              mountPath: /host/usr
-              readOnly: true
-            - name: etc-falco
-              mountPath: /etc/falco
-            - name: var-falco
-              mountPath: /root/.falco
-            - name: var-log
-              mountPath: /var/log
-        - name: falco-driver-loader
-          image: docker.io/falcosecurity/falco-driver-loader:0.41.3
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-          env:
-            - name: FALCO_BPF_PROBE
-              value: "/root/.falco/falco-bpf.o"
-          volumeMounts:
-            - name: lib-modules
-              mountPath: /host/lib/modules
-              readOnly: true
-            - name: usr
-              mountPath: /host/usr
-              readOnly: true
-            - name: boot-fs
-              mountPath: /host/boot
-              readOnly: true
-            - name: var-falco
-              mountPath: /root/.falco
-            - name: etc-falco
-              mountPath: /etc/falco
-            - name: var-log
-              mountPath: /var/log
-      volumes:
-        - name: dev-fs
-          hostPath:
-            path: /dev
-        - name: proc-fs
-          hostPath:
-            path: /proc
-        - name: boot-fs
-          hostPath:
-            path: /boot
-        - name: lib-modules
-          hostPath:
-            path: /lib/modules
-        - name: usr
-          hostPath:
-            path: /usr
-        - name: var-falco
-          hostPath:
-            path: /var/falco
-        - name: etc-falco
-          hostPath:
-            path: /etc/falco
-        - name: var-log
-          hostPath:
-            path: /var/log
+kubectl get configmaps -n trivy-reports
+kubectl get cm nginx-pod-2025-10-26 -n trivy-reports -o yaml
