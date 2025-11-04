@@ -1,22 +1,339 @@
-[root@EQVLWSO2APSIT15 system]# pwd
-/etc/systemd/system
-[root@EQVLWSO2APSIT15 system]# cat trivy-scan.service
+Nice — I cleaned up your configs, fixed a few robustness issues (strict error handling, path checks, safer namespace listing, better logging), and kept your original behavior (offline DB, 7-day cleanup, nginx hosting). Copy-and-paste the files below to replace your current ones.
+
+---
+
+# 1) `/etc/profile.d/trivy_env.sh`
+
+```bash
+#!/usr/bin/env bash
+# Environment variables for Trivy offline scans
+# Keep offline/db update disabled because you run from an offline DB path.
+
+export TRIVY_CACHE_DIR="/root/.cache/trivy"
+export TRIVY_SKIP_UPDATE="true"
+# TRIVY_OFFLINE_SCAN is not required as env var because CLI flag --offline-scan is used,
+# but we set it for clarity.
+export TRIVY_OFFLINE_SCAN="true"
+export KUBECONFIG="/root/.kube/config"
+```
+
+Install / enable:
+
+```bash
+chmod +x /etc/profile.d/trivy_env.sh
+# load now for current session:
+source /etc/profile.d/trivy_env.sh
+```
+
+---
+
+# 2) `/usr/local/bin/trivy-cluster-scan.sh`
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# ======================================================
+# Trivy Kubernetes Cluster Scan - Namespace + Summary
+# Robust, offline-first, writes HTML reports to /var/log/trivy
+# ======================================================
+
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+LOG_DIR="/var/log/trivy"
+CACHE_DIR="${TRIVY_CACHE_DIR:-/root/.cache/trivy}"
+KUBECONFIG="${KUBECONFIG:-/root/.kube/config}"
+TRIVY_BIN="/usr/local/bin/trivy"
+KUBECTL_BIN="$(command -v kubectl || true)"
+
+mkdir -p "$LOG_DIR"
+mkdir -p "$CACHE_DIR"
+touch "$LOG_DIR/.scan_lock"
+
+# Basic sanity checks
+if [ ! -x "$TRIVY_BIN" ]; then
+  echo "ERROR: trivy not found at $TRIVY_BIN or not executable" >&2
+  exit 2
+fi
+if [ -z "$KUBECTL_BIN" ]; then
+  echo "ERROR: kubectl not found in PATH" >&2
+  exit 2
+fi
+if [ ! -f "$KUBECONFIG" ]; then
+  echo "ERROR: kubeconfig not found at $KUBECONFIG" >&2
+  exit 2
+fi
+
+SUMMARY_REPORT="$LOG_DIR/trivy_cluster_summary_${DATE}.txt"
+SUMMARY_HTML="$LOG_DIR/trivy_cluster_summary_${DATE}.html"
+
+echo "=====================================================" | tee "$SUMMARY_REPORT"
+echo " Trivy Kubernetes Cluster Scan - $DATE" | tee -a "$SUMMARY_REPORT"
+echo "=====================================================" | tee -a "$SUMMARY_REPORT"
+echo "" | tee -a "$SUMMARY_REPORT"
+
+# helper to run trivy with consistent flags
+run_trivy() {
+  local extra_flags=("$@")
+  # Common flags:
+  # --cache-dir: point to offline DB/cache
+  # --skip-db-update and --offline-scan to prevent remote updates in an offline environment
+  "$TRIVY_BIN" k8s \
+    --kubeconfig "$KUBECONFIG" \
+    --cache-dir "$CACHE_DIR" \
+    --skip-db-update \
+    --offline-scan \
+    "${extra_flags[@]}"
+}
+
+# ------------------------------------------------------
+# 1️⃣  Scan each namespace individually (except Terminating)
+# ------------------------------------------------------
+namespaces=$($KUBECTL_BIN get ns -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+
+if [ -z "$namespaces" ]; then
+  echo "[$(date)] No namespaces found or kubectl failed. Exiting." | tee -a "$SUMMARY_REPORT"
+  exit 0
+fi
+
+for ns in $namespaces; do
+    # skip terminating namespaces
+    phase=$($KUBECTL_BIN get ns "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+    if [ "$phase" = "Terminating" ]; then
+      echo "[$(date)] Skipping Terminating namespace: $ns" | tee -a "$SUMMARY_REPORT"
+      continue
+    fi
+
+    echo "[$(date)] Scanning namespace: $ns" | tee -a "$SUMMARY_REPORT"
+
+    NS_HTML_REPORT="$LOG_DIR/trivy_${ns}_report_${DATE}.html"
+    NS_TXT_REPORT="$LOG_DIR/trivy_${ns}_report_${DATE}.txt"
+
+    # run trivy for namespace; capture both stdout/stderr into txt, and produce html file
+    if run_trivy --namespace "$ns" --report summary --format html --output "$NS_HTML_REPORT" 2>&1 | tee -a "$NS_TXT_REPORT"; then
+      echo "[$(date)] ✅ Completed namespace: $ns" | tee -a "$SUMMARY_REPORT"
+      echo "Report saved: $NS_HTML_REPORT" | tee -a "$SUMMARY_REPORT"
+    else
+      echo "[$(date)] ❌ Namespace scan failed for: $ns (see $NS_TXT_REPORT)" | tee -a "$SUMMARY_REPORT"
+    fi
+
+    echo "" | tee -a "$SUMMARY_REPORT"
+done
+
+# ------------------------------------------------------
+# 2️⃣  Cluster-wide summary
+# ------------------------------------------------------
+echo "[$(date)] Starting cluster-wide summary scan..." | tee -a "$SUMMARY_REPORT"
+
+if run_trivy --report summary --format html --output "$SUMMARY_HTML" 2>&1 | tee -a "$SUMMARY_REPORT"; then
+  echo "[$(date)] ✅ Cluster-wide scan completed successfully." | tee -a "$SUMMARY_REPORT"
+  echo "Summary Report: $SUMMARY_HTML" | tee -a "$SUMMARY_REPORT"
+else
+  echo "[$(date)] ❌ Cluster-wide scan failed! Check above logs." | tee -a "$SUMMARY_REPORT"
+fi
+
+# ------------------------------------------------------
+# 3️⃣  Cleanup old reports (older than 7 days)
+# ------------------------------------------------------
+# Only remove trivy_* files older than 7 days
+find "$LOG_DIR" -type f -mtime +7 -name "trivy_*" -print -exec rm -f {} \; | tee -a "$SUMMARY_REPORT"
+echo "[$(date)] 🧹 Old reports older than 7 days deleted." | tee -a "$SUMMARY_REPORT"
+
+echo "All reports are stored in $LOG_DIR"
+echo "Scan completed at $(date)" | tee -a "$SUMMARY_REPORT"
+
+# rotate a simple latest symlink for convenient access
+ln -sf "$SUMMARY_HTML" "$LOG_DIR/trivy_cluster_summary_latest.html"
+```
+
+Install + make executable:
+
+```bash
+chmod 0755 /usr/local/bin/trivy-cluster-scan.sh
+```
+
+---
+
+# 3) `/etc/systemd/system/trivy-scan.service`
+
+```ini
 [Unit]
 Description=Trivy Kubernetes Cluster Scan Service
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+# ensure log directory exists before starting
+ExecStartPre=/bin/mkdir -p /var/log/trivy
+ExecStartPre=/bin/chown root:root /var/log/trivy
 ExecStart=/usr/local/bin/trivy-cluster-scan.sh
-Environment="TRIVY_CACHE_DIR=/root/.cache/trivy"
-Environment="TRIVY_SKIP_UPDATE=true"
-Environment="TRIVY_OFFLINE_SCAN=true"
-Environment="KUBECONFIG=/root/.kube/config"
 WorkingDirectory=/var/log/trivy
 Restart=on-failure
+RestartSec=30
 User=root
+# Export minimal env; systemd will not source /etc/profile.d/*.sh automatically
+Environment=TRIVY_CACHE_DIR=/root/.cache/trivy
+Environment=TRIVY_SKIP_UPDATE=true
+Environment=TRIVY_OFFLINE_SCAN=true
+Environment=KUBECONFIG=/root/.kube/config
 
 [Install]
 WantedBy=multi-user.target
+```
 
+Reload systemd after placing file:
 
+```bash
+systemctl daemon-reload
+systemctl enable --now trivy-scan.service
+```
+
+If you prefer the service to *only* run via timer, disable the direct service enable and enable only the timer (see section 4).
+
+---
+
+# 4) `/etc/systemd/system/trivy-scan.timer` (optional — daily)
+
+```ini
+[Unit]
+Description=Run Trivy Cluster Scan Daily
+
+[Timer]
+# run once per day; use Persistent to catch missed runs
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable timer:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now trivy-scan.timer
+# check status:
+systemctl list-timers --all | grep trivy
+```
+
+---
+
+# 5) `/etc/nginx/conf.d/trivy.conf`
+
+```nginx
+server {
+    listen 8080;
+    server_name _;
+
+    access_log /var/log/nginx/trivy_access.log;
+    error_log /var/log/nginx/trivy_error.log;
+
+    # serve the /var/log/trivy folder at /trivy/
+    location /trivy/ {
+        autoindex on;                  # enable directory listing
+        alias /var/log/trivy/;         # alias must end with a slash
+        index index.html;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        # prevent directory listing caching by browsers
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+}
+```
+
+Notes:
+
+* Ensure `/var/log/trivy` contents are readable by nginx user (e.g., `nginx` or `www-data`). On RHEL the nginx user is `nginx`; on Debian/Ubuntu it is `www-data`.
+* Example permission command:
+
+```bash
+# make files world-readable (easy path); for tighter security adjust owner/group
+chown -R root:root /var/log/trivy
+chmod -R 755 /var/log/trivy
+```
+
+Test & reload:
+
+```bash
+nginx -t && systemctl reload nginx
+```
+
+---
+
+# 6) Final setup commands (copy/paste)
+
+```bash
+# create directories and offline db path
+mkdir -p /var/log/trivy
+mkdir -p /root/.cache/trivy/db
+
+# ensure Trivy binary exists at /usr/local/bin/trivy (if you installed elsewhere, update paths)
+# reload systemd and start services
+systemctl daemon-reload
+
+# If you want service to run immediately and on boot:
+systemctl enable --now trivy-scan.service
+
+# Optional: run immediately now (manual run)
+# /usr/local/bin/trivy-cluster-scan.sh
+
+# If using timer instead (daily)
+systemctl enable --now trivy-scan.timer
+
+# Nginx install + enable (pick one for your distro)
+# RHEL/CentOS
+# yum install -y nginx && systemctl enable --now nginx
+# Ubuntu/Debian
+# apt update && apt install -y nginx && systemctl enable --now nginx
+
+# ensure nginx can read the reports
+chown -R root:root /var/log/trivy
+chmod -R 755 /var/log/trivy
+
+# create symlink for nginx web root (optional; alias already points directly to /var/log/trivy)
+# ln -s /var/log/trivy /usr/share/nginx/html/trivy
+
+# test nginx and systemd
+nginx -t
+systemctl restart nginx
+systemctl status trivy-scan.service
+```
+
+---
+
+# Quick verification commands
+
+```bash
+# service status
+systemctl status trivy-scan.service
+
+# timer status
+systemctl status trivy-scan.timer
+systemctl list-timers | grep trivy
+
+# view latest summary HTML
+ls -ltr /var/log/trivy | tail -n 20
+
+# open in browser:
+# http://<master-node-ip>:8080/trivy/
+```
+
+---
+
+## Notes / small recommendations
+
+* If you're on RHEL with **SELinux enabled**, you may need to set correct SELinux context for `/var/log/trivy` (e.g., `chcon -R -t httpd_sys_content_t /var/log/trivy`), otherwise nginx may be denied access.
+* Keep your offline DB refreshed on a networked machine regularly and copy `~/.cache/trivy/db` to `/root/.cache/trivy/db` on the master node when you have network access.
+* If you want basic auth or IP restrictions on the Nginx endpoint, I can provide a secure snippet.
+* If your trivy binary is at a different path (e.g., `/usr/bin/trivy`) update `TRIVY_BIN` in the script and the systemd unit `ExecStart`.
+
+---
+
+Would you like me to:
+
+1. Add SELinux commands for RHEL systems,
+2. Add simple basic-auth protection for the Nginx directory, or
+3. Produce a short `rsync` script to copy updated Trivy DB files from an air-gapped staging machine into `/root/.cache/trivy/db`?
+
+Pick one and I’ll drop the exact file/commands.
