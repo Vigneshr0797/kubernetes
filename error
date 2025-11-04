@@ -277,3 +277,90 @@ verifies the YAML file, and prevents these connection errors.
 
 Would you like me to send you that upgraded version?
 
+[root@EQVLWSO2APSIT15 ~]# systemctl status trivy-scan.service
+○ trivy-scan.service - Trivy Kubernetes Cluster Scan Service
+     Loaded: loaded (/etc/systemd/system/trivy-scan.service; enabled; preset: disabled)
+     Active: inactive (dead) since Tue 2025-11-04 06:28:26 IST; 55s ago
+   Duration: 1.260s
+TriggeredBy: ● trivy-scan.timer
+   Main PID: 1631873 (code=exited, status=0/SUCCESS)
+        CPU: 1.422s
+
+Nov 04 06:28:25 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632133]: [Tue Nov  4 06:28:25 AM IST 2025] Starting cluster-wide summary scan...
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632136]: 2025-11-04T06:28:26+05:30        WARN        'TRIVY_SKIP_UPDATE' is deprecated. Use 'TRIVY_SKIP_DB_UPDA>
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632136]: 2025-11-04T06:28:26+05:30        WARN        'TRIVY_SKIP_UPDATE' is deprecated. Use 'TRIVY_SKIP_DB_UPDA>
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632136]: 2025-11-04T06:28:26+05:30        FATAL        Fatal error        flag error: unable to parse flags: una>
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632147]: [Tue Nov  4 06:28:26 AM IST 2025] ❌ Cluster-wide scan failed! Check above logs.
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632152]: [Tue Nov  4 06:28:26 AM IST 2025] 🧹 Old reports older than 7 days deleted.
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1631873]: All reports are stored in /var/log/trivy
+Nov 04 06:28:26 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1632155]: Scan completed at Tue Nov  4 06:28:26 AM IST 2025
+Nov 04 06:28:26 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Deactivated successfully.
+Nov 04 06:28:26 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Consumed 1.422s CPU time.
+
+[root@EQVLWSO2APSIT15 ~]# systemctl start trivy-scan.service
+[root@EQVLWSO2APSIT15 ~]# systemctl start trivy-scan.timer
+[root@EQVLWSO2APSIT15 ~]# systemctl status trivy-scan.timer
+● trivy-scan.timer - Run Trivy Cluster Scan Daily
+     Loaded: loaded (/etc/systemd/system/trivy-scan.timer; enabled; preset: disabled)
+     Active: active (waiting) since Tue 2025-11-04 06:26:10 IST; 4min 32s ago
+      Until: Tue 2025-11-04 06:26:10 IST; 4min 32s ago
+    Trigger: Wed 2025-11-05 00:00:00 IST; 17h left
+   Triggers: ● trivy-scan.service
+
+Nov 04 06:26:10 EQVLWSO2APSIT15 systemd[1]: Started Run Trivy Cluster Scan Daily.
+[root@EQVLWSO2APSIT15 ~]# ^C
+[root@EQVLWSO2APSIT15 ~]# systemctl list-timers | grep trivy
+Wed 2025-11-05 00:00:00 IST 17h left      -                           -         trivy-scan.timer             trivy-scan.service
+[root@EQVLWSO2APSIT15 ~]#
+[root@EQVLWSO2APSIT15 ~]# journalctl -u trivy-scan.service -n 50 --no-pager
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - debian
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - ubuntu
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - alpine
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - amazon
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - oracle-oval
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - suse-cvrf
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - photon
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - arch-linux
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - alma
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - rocky
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - cbl-mariner
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - azure
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - ruby-advisory-db
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - php-security-advisories
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - nodejs-security-wg
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - ghsa
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - glad
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - aqua
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - osv
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - k8s
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - wolfi
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - chainguard
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - bitnami
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - govulndb
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - echo
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - minimos
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - rootio
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                          - auto
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:                                         (default [auto])
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]: Global Flags:
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:       --cache-dir string          cache directory (default "/root/.cache/trivy")
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:   -c, --config string             config path (default "trivy.yaml")
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:   -d, --debug                     debug mode
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:       --generate-default-config   write the default config to trivy-default.yaml
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:       --insecure                  allow insecure server connections
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:   -q, --quiet                     suppress progress bar and log output
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:       --timeout duration          timeout (default 5m0s)
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]:   -v, --version                   show version
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633590]: 2025-11-04T06:30:17+05:30        FATAL        Fatal error        unknown flag: --namespace
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633601]: [Tue Nov  4 06:30:17 AM IST 2025] ❌ Namespace scan failed for: springboot-migration (see /var/log/trivy/trivy_springboot-migration_report_2025-11-04_06-30-16.txt)
+Nov 04 06:30:17 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633606]: [Tue Nov  4 06:30:17 AM IST 2025] Starting cluster-wide summary scan...
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633610]: 2025-11-04T06:30:18+05:30        WARN        'TRIVY_SKIP_UPDATE' is deprecated. Use 'TRIVY_SKIP_DB_UPDATE' instead.
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633610]: 2025-11-04T06:30:18+05:30        WARN        'TRIVY_SKIP_UPDATE' is deprecated. Use 'TRIVY_SKIP_DB_UPDATE' instead.
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633610]: 2025-11-04T06:30:18+05:30        FATAL        Fatal error        flag error: unable to parse flags: unable to parse flag: invalid argument "html" for "--format" flag: must be one of ["table" "json" "cyclonedx"]
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633620]: [Tue Nov  4 06:30:18 AM IST 2025] ❌ Cluster-wide scan failed! Check above logs.
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633625]: [Tue Nov  4 06:30:18 AM IST 2025] 🧹 Old reports older than 7 days deleted.
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633340]: All reports are stored in /var/log/trivy
+Nov 04 06:30:18 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1633628]: Scan completed at Tue Nov  4 06:30:18 AM IST 2025
+Nov 04 06:30:18 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Deactivated successfully.
+Nov 04 06:30:18 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Consumed 1.387s CPU time.
+[root@EQVLWSO2APSIT15 ~]#
