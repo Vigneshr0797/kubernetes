@@ -1,0 +1,75 @@
+[root@EQVLWSO2APSIT15 ~]# systemctl status trivy-scan.service
+○ trivy-scan.service - Trivy Kubernetes Cluster Scan Service
+     Loaded: loaded (/etc/systemd/system/trivy-scan.service; enabled; preset: disabled)
+     Active: inactive (dead) since Tue 2025-11-04 06:50:48 IST; 1s ago
+   Duration: 2.979s
+TriggeredBy: ● trivy-scan.timer
+    Process: 1646296 ExecStartPre=/bin/mkdir -p /var/log/trivy (code=exited, status=0/SUCCESS)
+    Process: 1646297 ExecStartPre=/bin/chown root:root /var/log/trivy (code=exited, status=0/SUCCESS)
+    Process: 1646298 ExecStart=/usr/local/bin/trivy-cluster-scan.sh (code=exited, status=0/SUCCESS)
+   Main PID: 1646298 (code=exited, status=0/SUCCESS)
+        CPU: 3.481s
+
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]: 2025-11-04T06:50:48+05:30        FATAL        Fatal error        unknown flag: --disable-policy
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] ❌ Namespace scan failed: springboot-migration (see /var/log/trivy/tr>
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] Starting cluster-wide summary scan...
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646520]: 2025-11-04T06:50:48+05:30        FATAL        Fatal error        failed getting k8s cluster: context "c>
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] ❌ Cluster-wide summary scan failed!
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] 🧹 Old reports older than 7 days deleted.
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: All reports are stored in /var/log/trivy
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: Scan completed at Tue Nov  4 06:50:48 AM IST 2025
+Nov 04 06:50:48 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Deactivated successfully.
+Nov 04 06:50:48 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Consumed 3.481s CPU time.
+
+[root@EQVLWSO2APSIT15 ~]# journalctl -u trivy-scan.service -n 50 --no-pager
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - table
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - json
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - template
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - sarif
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - cyclonedx
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - spdx
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - spdx-json
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - github
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - cosign-vuln
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                     (default "table")
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --ignore-policy string       specify the Rego file path to evaluate each vulnerability
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --ignorefile string          specify .trivyignore file (default ".trivyignore")
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -o, --output string              output file name
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --output-plugin-arg string   [EXPERIMENTAL] output plugin arguments
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --report string              specify a compliance report format for the output (allowed values: all,summary) (default "all")
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -s, --severity strings           severities of security issues to be displayed
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                    Allowed values:
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - UNKNOWN
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - LOW
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - MEDIUM
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - HIGH
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                      - CRITICAL
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:                                     (default [UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL])
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --table-mode strings         [EXPERIMENTAL] tables that will be displayed in 'table' format (allowed values: summary,detailed) (default [summary,detailed])
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -t, --template string            output template
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]: Scan Flags
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --disable-telemetry       disable sending anonymous usage data to Aqua
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --file-patterns strings   specify config file patterns
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --skip-dirs strings       specify the directories or glob patterns to skip
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --skip-files strings      specify the files or glob patterns to skip
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --skip-version-check      suppress notices about version updates and Trivy announcements
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]: Global Flags:
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --cache-dir string          cache directory (default "/root/.cache/trivy")
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -c, --config string             config path (default "trivy.yaml")
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -d, --debug                     debug mode
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --generate-default-config   write the default config to trivy-default.yaml
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --insecure                  allow insecure server connections
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -q, --quiet                     suppress progress bar and log output
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:       --timeout duration          timeout (default 5m0s)
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]:   -v, --version                   show version
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646507]: 2025-11-04T06:50:48+05:30        FATAL        Fatal error        unknown flag: --disable-policy
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] ❌ Namespace scan failed: springboot-migration (see /var/log/trivy/trivy_springboot-migration_report_2025-11-04_06-50.txt)
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] Starting cluster-wide summary scan...
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646520]: 2025-11-04T06:50:48+05:30        FATAL        Fatal error        failed getting k8s cluster: context "cluster" does not exist
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] ❌ Cluster-wide summary scan failed!
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: [Tue Nov  4 06:50:48 AM IST 2025] 🧹 Old reports older than 7 days deleted.
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: All reports are stored in /var/log/trivy
+Nov 04 06:50:48 EQVLWSO2APSIT15 trivy-cluster-scan.sh[1646298]: Scan completed at Tue Nov  4 06:50:48 AM IST 2025
+Nov 04 06:50:48 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Deactivated successfully.
+Nov 04 06:50:48 EQVLWSO2APSIT15 systemd[1]: trivy-scan.service: Consumed 3.481s CPU time.
+[root@EQVLWSO2APSIT15 ~]#
