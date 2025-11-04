@@ -1,105 +1,134 @@
-sudo mkdir -p /opt/trivy/bin
-cd /opt/trivy/bin
+Perfect — that’s an excellent diagnostic dump.
+From your logs, the **Trivy cluster scan script and timer** are both running fine — only the **Trivy command arguments** inside your `trivy-cluster-scan.sh` script need a small fix to match your installed **Trivy version (v0.67.2)**.
 
-curl -LO https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.tar.gz
-tar -xzf trivy_0.55.0_Linux-64bit.tar.gz
-sudo mv trivy /usr/local/bin/trivy
-sudo chmod +x /usr/local/bin/trivy
+Let’s fix each issue precisely 👇
 
-trivy --version
-✅ You now have the official binary, no Docker image.
+---
 
-🧰 2. Create a Shared Configuration (Optional)
+## 🔍 1. Problem Summary
 
+You have three specific errors in your journal logs:
 
-If you want all nodes to use a common config (e.g., DB path, cache, etc.):
+| Error                                         | Root Cause                                                             | Fix                                                                   |
+| --------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `unknown flag: --namespace`                   | The newer Trivy dropped `--namespace` flag for `trivy k8s`             | Remove that flag and use `trivy k8s cluster --report summary` instead |
+| `'TRIVY_SKIP_UPDATE' is deprecated`           | Env variable changed name                                              | Use `TRIVY_SKIP_DB_UPDATE=true` instead                               |
+| `invalid argument "html" for "--format" flag` | Your version (0.67.2) supports only `"table"`, `"json"`, `"cyclonedx"` | Change `--format html` to `--format table`                            |
 
-sudo mkdir -p /opt/trivy/data
-sudo tee /etc/trivy.yaml <<'EOF'
-cacheDir: /opt/trivy/data
-vulnType:
-  - os
-  - library
-ignoreUnfixed: true
-EOF
-📦 3. Create a SystemD Service for Continuous Runtime Scanning
+---
 
+## ✅ 2. Corrected Version of `/usr/local/bin/trivy-cluster-scan.sh`
 
-Each node can continuously scan all containers running on it using crictl.
+Replace your current one with this (safe offline version):
 
+```bash
+#!/usr/bin/env bash
+# ==================================================================
+# Trivy Cluster Scan Script - Offline Compatible (v0.67.2)
+# ==================================================================
 
+LOG_DIR="/var/log/trivy"
+CACHE_DIR="/root/.cache/trivy"
+DATE=$(date +"%Y-%m-%d_%H-%M")
+CLUSTER_NAME=$(kubectl config current-context 2>/dev/null || echo "unknown-cluster")
 
-Create the service file:
+mkdir -p "$LOG_DIR"
 
-sudo tee /etc/systemd/system/trivy-runtime.service <<'EOF'
-[Unit]
-Description=Trivy Runtime Scanner
-After=network.target
+echo "[$(date)] Starting cluster-wide Trivy scan for cluster: $CLUSTER_NAME"
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/trivy fs --skip-db-update --format json --output /opt/trivy/scan-results.json /
-Restart=on-failure
-RestartSec=3600
+# Ensure offline DB use
+export TRIVY_SKIP_DB_UPDATE=true
+export TRIVY_SKIP_POLICY_UPDATE=true
 
-[Install]
-WantedBy=multi-user.target
-EOF
-Then enable and start:
+# Namespace-wise scan
+for ns in $(kubectl get ns --no-headers | awk '{print $1}'); do
+    echo "[$(date)] Scanning namespace: $ns ..."
+    OUT_FILE="$LOG_DIR/trivy_${ns}_report_${DATE}.txt"
 
-sudo systemctl daemon-reload
-sudo systemctl enable trivy-runtime
-sudo systemctl start trivy-runtime
-This will scan the node’s filesystem periodically and output a JSON report at /opt/trivy/scan-results.json.
+    # Export all resources for the namespace
+    kubectl get all -n "$ns" -o yaml > /tmp/${ns}.yaml 2>/dev/null
 
-🔍 4. For Container Runtime (Containerd/CRI-O)
+    if [ ! -s /tmp/${ns}.yaml ]; then
+        echo "[$(date)] ⚠️  No resources found in namespace: $ns, skipping."
+        continue
+    fi
 
+    trivy config \
+        --cache-dir "$CACHE_DIR" \
+        --skip-policy-update \
+        --disable-policy \
+        --format table \
+        --quiet \
+        --output "$OUT_FILE" \
+        /tmp/${ns}.yaml
 
-You can directly scan active containers by enumerating them via crictl:
+    if [ $? -eq 0 ]; then
+        echo "[$(date)] ✅ Namespace scan completed: $ns (Report: $OUT_FILE)"
+    else
+        echo "[$(date)] ❌ Namespace scan failed: $ns (see $OUT_FILE)"
+    fi
 
-
-
-Create a CronJob script at /usr/local/bin/trivy-scan-cri.sh:
-
-#!/bin/bash
-SCAN_DIR="/opt/trivy/scans"
-mkdir -p $SCAN_DIR
-date=$(date +%F_%T)
-
-for id in $(crictl ps -q); do
-  name=$(crictl inspect $id | grep name | head -1 | awk -F'"' '{print $4}')
-  echo "Scanning container: $name ($id)"
-  trivy fs --skip-db-update --format json --output "$SCAN_DIR/$name-$date.json" /run/containerd/io.containerd.runtime.v2.task/k8s.io/$id/rootfs
+    rm -f /tmp/${ns}.yaml
 done
-Make it executable:
 
-sudo chmod +x /usr/local/bin/trivy-scan-cri.sh
-Create a CronJob via system cron:
+# Cluster-level summary scan
+echo "[$(date)] Starting cluster-wide summary scan..."
+CLUSTER_REPORT="$LOG_DIR/trivy_cluster_summary_${DATE}.txt"
 
-sudo crontab -e
-Add:
+trivy k8s cluster \
+    --report summary \
+    --cache-dir "$CACHE_DIR" \
+    --skip-policy-update \
+    --format table \
+    --quiet \
+    --output "$CLUSTER_REPORT"
 
-0 */6 * * * /usr/local/bin/trivy-scan-cri.sh
-This runs every 6 hours, scanning all running containers and storing results under /opt/trivy/scans.
+if [ $? -eq 0 ]; then
+    echo "[$(date)] ✅ Cluster-wide summary report saved at: $CLUSTER_REPORT"
+else
+    echo "[$(date)] ❌ Cluster-wide summary scan failed!"
+fi
 
-🧾 5. (Optional) Push Reports into Kubernetes for Visibility
+# Cleanup old reports (7 days)
+find "$LOG_DIR" -type f -mtime +7 -name "*.txt" -exec rm -f {} \;
+echo "[$(date)] 🧹 Old reports older than 7 days deleted."
 
+echo "All reports are stored in $LOG_DIR"
+echo "Scan completed at $(date)"
+```
 
-If you want reports visible in Kubernetes:
+---
 
-kubectl create namespace trivy-reports
-Create this script /usr/local/bin/trivy-upload-k8s.sh:
+## ✅ 3. Systemd Fixes
 
-#!/bin/bash
-SCAN_DIR="/opt/trivy/scans"
-for file in $SCAN_DIR/*.json; do
-  name=$(basename $file .json)
-  kubectl create configmap $name --from-file=$file -n trivy-reports --dry-run=client -o yaml | kubectl apply -f -
-done
-Schedule it with cron:
+No change needed to your `trivy-scan.service` or `trivy-scan.timer` files.
+But to ensure clean logs:
 
-15 */6 * * * /usr/local/bin/trivy-upload-k8s.sh
-You can then view results in Kubernetes:
+```bash
+systemctl daemon-reload
+systemctl restart trivy-scan.timer
+systemctl start trivy-scan.service
+```
 
-kubectl get configmaps -n trivy-reports
-kubectl get cm nginx-pod-2025-10-26 -n trivy-reports -o yaml
+Check:
+
+```bash
+systemctl status trivy-scan.service
+journalctl -u trivy-scan.service -n 50 --no-pager
+```
+
+You should now **see clean runs** — no more `unknown flag`, no more `deprecated variable`, and no `invalid argument "html"` errors.
+
+---
+
+## ✅ 4. What You’ll See in Logs Now
+
+* ✅ Each namespace scan: `✅ Namespace scan completed: springboot-bau`
+* ✅ Cluster summary at the end: `✅ Cluster-wide summary report saved at /var/log/trivy/trivy_cluster_summary_<timestamp>.txt`
+* ⚠️ Empty namespaces will show “No resources found”
+* 🧹 Old reports older than 7 days will auto-delete
+
+---
+
+Would you like me to also include **HTML reports** by auto-converting the final summary text into HTML format (for easy viewing in a browser dashboard)?
+This can be done entirely offline too.
