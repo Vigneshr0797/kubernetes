@@ -1,0 +1,11 @@
+Subject: Request to Review Consolidated List of APIs Across Non-Prod Environments
+
+Dear Team,
+
+We have consolidated the list of APIs currently available across all non-production environments. Please review the attached sheet and let us know if any APIs are missing. This information is essential for us to proceed with creating the required pipelines.
+
+Kindly note that all APIs available in UAT are also present in SIT. However, in Pre-Prod, most APIs do not yet have pipelines. We request your support in reviewing the list and providing updates wherever necessary.
+
+Special thanks to Pooja for consolidating this sheet.
+
+Your timely inputs will help us ensure accurate pipeline setup.
