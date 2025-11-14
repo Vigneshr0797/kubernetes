@@ -149,3 +149,105 @@ OR
 ✅ Step-by-step screenshots matching your Jira UI
 
 Just tell me which you prefer!
+Got it.
+You do NOT need to write a JQL for each Epic, even if you have hundreds of Epics.
+
+Automation allows you to write one JQL that dynamically picks the correct Epic every time, no matter which Task or Sub-task triggers the rule.
+
+Below are the correct dynamic JQL patterns depending on which rule you’re building.
+
+⸻
+
+✅ 1. For Rule 2 (Task → Epic roll-up)
+
+This runs when a Task is updated and you want to collect ALL Tasks + Sub-tasks inside that Task’s Epic.
+
+Use this JQL inside Lookup Issues:
+
+"Epic Link" = {{issue.epic.key}} OR parent in (issuesInEpics("key = {{issue.epic.key}}"))
+
+If your Jira doesn’t support issuesInEpics() (some Server/DC versions don’t), use the safe fallback:
+
+"Epic Link" = {{issue.epic.key}} OR parent = {{issue.epic.key}}
+
+✔ This handles ANY number of Epics automatically
+
+No need to change the rule per Epic.
+
+⸻
+
+✅ 2. For Rule 3 (Scheduled Epic refresh)
+
+If you want to loop through every Epic in your project, use this JQL:
+
+issuetype = Epic AND project = YOURPROJECTKEY
+
+This lets the automation visit every Epic one by one.
+
+Inside the rule, for each Epic, you use:
+
+"Epic Link" = {{issue.key}} OR parent in (issuesInEpics("key = {{issue.key}}"))
+
+This Lookup Issues JQL finds all Tasks + Subtasks for the current Epic, no matter how many epics you have.
+
+⸻
+
+✔ COMPLETE EXAMPLE
+
+If you schedule the rule every 5 minutes:
+
+Trigger → Scheduled
+
+JQL:
+
+issuetype = Epic
+
+Action → Lookup Issues
+
+JQL:
+
+"Epic Link" = {{issue.key}} OR parent = {{issue.key}}
+
+Action → Edit Issue → Additional Fields:
+
+{
+  "fields": {
+    "timetracking": {
+      "originalEstimate": "{{lookupIssues.Sum.timetracking.originalEstimateSeconds}}s",
+      "remainingEstimate": "{{#=}}{{lookupIssues.Sum.timetracking.originalEstimateSeconds}} - {{lookupIssues.Sum.timetracking.timeSpentSeconds}}{{/}}s",
+      "timeSpent": "{{lookupIssues.Sum.timetracking.timeSpentSeconds}}s"
+    }
+  }
+}
+
+This works for any number of Epics, any number of Tasks, any number of Sub-tasks.
+
+⸻
+
+⚡ Summary
+
+You don’t need a separate JQL per Epic
+
+You only need:
+
+✔ {{issue.epic.key}}
+
+when rule is triggered by a Task
+
+OR
+
+✔ {{issue.key}}
+
+when rule is running on an Epic itself.
+
+Jira replaces these smart values with the correct Epic automatically.
+
+⸻
+
+If you want, I can now provide:
+
+✅ All 3 rules fully assembled
+OR
+✅ Screenshots (AI generated) for each rule with visual steps
+
+Just tell me “Give screenshots for all 3 rules”.
