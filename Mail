@@ -72,3 +72,69 @@ Total Memory (GB) 192.00 GB
 ⸻
 
 If you want, I can also give a script to show per-node CPU, Memory, and Disk in a clean table format.
+
+
+
+Here are the **best commands to get CPU cores and Memory (in GB) separately for each Kubernetes node.
+
+⸻
+
+✅ 1. CPU & Memory per Node (Clean Table Format)
+
+Command
+
+kubectl get nodes -o jsonpath="{range .items[*]}{.metadata.name}{','}{.status.capacity.cpu}{','}{.status.capacity.memory}{'\n'}{end}" \
+| awk -F',' '{
+    mem_gb = $3 / 1048576
+    printf "%-25s CPU: %-6s Memory: %.2f GB\n", $1, $2, mem_gb
+}'
+
+
+⸻
+
+📌 Example Output
+
+node1.example.com        CPU: 8      Memory: 31.26 GB
+node2.example.com        CPU: 8      Memory: 31.26 GB
+node3.example.com        CPU: 16     Memory: 62.51 GB
+
+
+⸻
+
+✅ 2. Only CPU per Node
+
+kubectl get nodes -o jsonpath="{range .items[*]}{.metadata.name}{': '}{.status.capacity.cpu}{'\n'}{end}"
+
+
+⸻
+
+✅ 3. Only Memory per Node (GB Conversion Included)
+
+kubectl get nodes -o jsonpath="{range .items[*]}{.metadata.name}{' '}{.status.capacity.memory}{'\n'}{end}" \
+| awk '{printf "%s Memory: %.2f GB\n", $1, $2/1048576}'
+
+
+⸻
+
+🔥 4. Best & Simplest Output for Each Node
+
+for node in $(kubectl get nodes -o name | cut -d'/' -f2); do
+  cpu=$(kubectl get node $node -o jsonpath="{.status.capacity.cpu}")
+  mem=$(kubectl get node $node -o jsonpath="{.status.capacity.memory}")
+  mem_gb=$(awk "BEGIN {printf \"%.2f\", $mem/1048576}")
+  echo "$node --> CPU: $cpu cores | Memory: $mem_gb GB"
+done
+
+
+⸻
+
+🟦 Example Output
+
+node1 --> CPU: 8 cores | Memory: 31.26 GB
+node2 --> CPU: 8 cores | Memory: 31.26 GB
+node3 --> CPU: 16 cores | Memory: 62.51 GB
+
+
+⸻
+
+If you want, I can also include disk space (df -h) for each node using a DaemonSet so you don’t need to SSH individually. Just tell me!
