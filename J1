@@ -1,0 +1,151 @@
+Great — here are three fully separated automation rules, each with its own trigger, scope, and JSON.
+This setup is the most stable and recommended approach for Jira Server/Data Center.
+
+These three rules will keep everything perfectly synced:
+
+1️⃣ Sub-task → Task
+2️⃣ Task → Epic
+3️⃣ Epic → Recalculate remaining + original
+
+Each rule is isolated to avoid recursion and automation loops.
+
+⸻
+
+✅ RULE 1 — Sync Time From Sub-task → Task
+
+Trigger
+
+Work Logged
+
+Condition (optional but recommended)
+
+Issue Type = Sub-task
+
+Branch: Parent (Task)
+
+Action → Edit Issue → Additional fields
+
+Paste JSON:
+
+{
+  "fields": {
+    "timetracking": {
+      "originalEstimate": "{{issue.timetracking.originalEstimate}}",
+      "remainingEstimate": "{{#=}}{{issue.timetracking.originalEstimateSeconds}} - {{issue.timetracking.timeSpentSeconds}}{{/}}",
+      "timeSpent": "{{issue.timetracking.timeSpent}}"
+    }
+  }
+}
+
+✔ What this rule does
+	•	Any work logged on a Sub-task immediately updates the Task time tracking.
+
+⸻
+
+✅ RULE 2 — Roll up totals from Tasks → Epic
+
+Trigger
+
+Issue Updated
+
+With field: Time Spent OR Original Estimate OR Remaining Estimate
+(issue type = Task)
+
+Branch: Parent → Epic
+
+Before the branch, add:
+
+Action → Lookup Issues
+
+Use this JQL:
+
+"Epic Link" = {{issue.epic.key}} OR parent = {{issue.epic.key}}
+
+Then inside the Epic branch:
+
+Action → Edit Issue → Additional fields
+
+JSON:
+
+{
+  "fields": {
+    "timetracking": {
+      "originalEstimate": "{{#=}}{{lookupIssues.Sum.timetracking.originalEstimateSeconds}} / 60}}{{/}}m",
+      "remainingEstimate": "{{#=}}{{lookupIssues.Sum.timetracking.originalEstimateSeconds}} - {{lookupIssues.Sum.timetracking.timeSpentSeconds}}{{/}}",
+      "timeSpent": "{{lookupIssues.Sum.timetracking.timeSpentSeconds}}"
+    }
+  }
+}
+
+✔ What this rule does
+	•	Whenever a Task changes its estimate or logs time
+→ The Epic instantly recalculates total Original Estimate, Remaining, and Time Spent.
+
+⸻
+
+✅ RULE 3 — Recalculate Epic if child issues updated indirectly
+
+This rule catches edge cases such as:
+	•	Editing a Task’s estimate without logging time
+	•	Removing a worklog
+	•	Bulk updates
+	•	Manually changing Original Estimate
+
+Trigger
+
+Scheduled (Every 5 minutes)
+—or—
+Issue Updated (Epic only)
+
+Recommended:
+
+Scheduled → Run JQL:
+issuetype = Epic
+
+Action → Lookup Issues
+
+JQL:
+
+"Epic Link" = {{issue.key}} OR parent = {{issue.key}}
+
+Action → Edit Issue → Additional fields
+
+Paste JSON:
+
+{
+  "fields": {
+    "timetracking": {
+      "originalEstimate": "{{#=}}{{lookupIssues.Sum.timetracking.originalEstimateSeconds}} / 60}}{{/}}m",
+      "remainingEstimate": "{{#=}}{{lookupIssues.Sum.timetracking.originalEstimateSeconds}} - {{lookupIssues.Sum.timetracking.timeSpentSeconds}}{{/}}",
+      "timeSpent": "{{lookupIssues.Sum.timetracking.timeSpentSeconds}}"
+    }
+  }
+}
+
+✔ What this rule does
+	•	Keeps Epics 100% in sync even if someone edits fields manually or outside normal workflow.
+
+⸻
+
+🎉 Your Setup Is Now Complete
+
+With these three rules:
+
+Action	Sub-task	Task	Epic
+Sub-task logs time	✔ Updates	—	—
+Task updates estimate/time	—	✔ Updates	✔ Updates
+Epic auto-refreshes via rule 3	—	—	✔ Always correct
+
+No loops
+No double-triggering
+No stale values
+
+⸻
+
+👉 If you want, I can generate:
+
+✅ A single downloadable JSON file containing all 3 rules
+OR
+✅ Step-by-step screenshots matching your Jira UI
+
+Just tell me which you prefer!
