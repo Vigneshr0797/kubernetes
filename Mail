@@ -9,3 +9,66 @@ Kindly note that all APIs available in UAT are also present in SIT. However, in 
 Special thanks to Pooja for consolidating this sheet.
 
 Your timely inputs will help us ensure accurate pipeline setup.
+
+
+
+
+You can get total CPU cores and total memory (in GB) of all Kubernetes nodes with a single kubectl command.
+
+Below are the simplest and most accurate methods.
+
+⸻
+
+✅ 1. Get Total CPU Cores of All Nodes
+
+kubectl get nodes -o jsonpath="{range .items[*]}{.status.capacity.cpu}{'\n'}{end}" \
+| awk '{sum += $1} END {print "Total CPU Cores =", sum}'
+
+
+⸻
+
+✅ 2. Get Total Memory of All Nodes (in GB)
+
+Kubernetes reports memory in Ki (kibibytes).
+
+kubectl get nodes -o jsonpath="{range .items[*]}{.status.capacity.memory}{'\n'}{end}" \
+| awk '{sum += $1} END {printf "Total Memory = %.2f GB\n", sum/1048576}'
+
+
+⸻
+
+🟦 Combined Script: Total CPU + Total Memory (GB)
+
+#!/bin/bash
+
+cpu_total=$(kubectl get nodes -o jsonpath="{range .items[*]}{.status.capacity.cpu}{'\n'}{end}" \
+    | awk '{sum += $1} END {print sum}')
+
+mem_total=$(kubectl get nodes -o jsonpath="{range .items[*]}{.status.capacity.memory}{'\n'}{end}" \
+    | awk '{sum += $1} END {printf "%.2f", sum/1048576}')
+
+echo "Total CPU Cores : $cpu_total"
+echo "Total Memory (GB): $mem_total"
+
+
+⸻
+
+🔥 One-Liner to Get Total CPU + Memory in Table Format
+
+printf "%-15s %-15s\n" "Total CPU Cores" "Total Memory (GB)"; \
+echo -n "$(kubectl get nodes -o jsonpath='{range .items[*]}{.status.capacity.cpu}{"\n"}{end}' | awk '{sum+=$1} END{print sum}')" ; \
+echo -ne "\t\t"; \
+kubectl get nodes -o jsonpath='{range .items[*]}{.status.capacity.memory}{"\n"}{end}' | awk '{sum+=$1} END{printf "%.2f GB\n", sum/1048576}'
+
+
+⸻
+
+🎯 Example Output
+
+Total CPU Cores   48
+Total Memory (GB) 192.00 GB
+
+
+⸻
+
+If you want, I can also give a script to show per-node CPU, Memory, and Disk in a clean table format.
