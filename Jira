@@ -1,0 +1,161 @@
+Below is the exact Jira behavior and how you can achieve syncing time tracking (Original Estimate & Worklog) from Sub-tasks → Task → Epic.
+
+⸻
+
+✅ Why your Epic is NOT showing synced time
+
+By default:
+	•	Worklogs roll up only within the Story/Task hierarchy
+(Sub-task → Task/Story).
+	•	Epics DO NOT automatically aggregate time tracking from Tasks/Sub-tasks.
+Jira treats Epics as separate issue types and does not roll up time by default.
+
+So even if you:
+	•	Add Original Estimate in Epic
+	•	Add Worklog in Task / Sub-task
+
+👉 Jira will NOT sync it unless you use Automation, Portfolio/Advanced Roadmaps, or Third-party plugins.
+
+⸻
+
+✅ Solution 1 — FREE & Recommended: Jira Automation Rule
+
+You can create an automation rule to sum the worklog from all child issues into the Epic.
+
+Steps to configure:
+
+1️⃣ Go to:
+
+Project Settings → Automation → Create Rule
+
+2️⃣ Trigger
+
+Choose:
+
+Work Logged
+
+This triggers whenever someone logs time on a task/sub-task.
+
+3️⃣ Branch Rule
+
+Add a branch:
+
+For Parent → Epic
+
+4️⃣ Action
+
+Choose:
+
+Edit Issue → Additional Fields
+
+Add the following JSON (sums worklogs):
+
+{
+  "fields": {
+    "timetracking": {
+      "remainingEstimate": "{{#=}}{{issue.timetracking.originalEstimateSeconds}} - {{issue.timetracking.timeSpentSeconds}}{{/}}",
+      "originalEstimate": "{{issue.timetracking.originalEstimate}}"
+    }
+  }
+}
+
+Or if you want the Epic to show total time spent of all child issues:
+
+{
+  "fields": {
+    "customfield_10016": "{{epic.sum.timeSpent}}"
+  }
+}
+
+(Note: customfield_10016 is the “Time Spent” field — your field ID may differ.)
+
+⸻
+
+✅ Solution 2 — Sum Original Estimate from tasks to Epic
+
+Use trigger:
+
+Issue Updated
+
+Branch:
+
+For Epic (Parent)
+
+Action:
+
+Recalculate field → Original Estimate
+
+JSON:
+
+{
+  "fields": {
+    "timetracking": {
+      "originalEstimate": "{{lookupIssues.Sum.timetracking.originalEstimateSeconds}}"
+    }
+  }
+}
+
+
+⸻
+
+✅ Solution 3 — Use Advanced Roadmaps (if you have Premium)
+
+If your Jira edition has Advanced Roadmaps, time tracking roll-up is built in.
+
+Go to:
+
+Plans → Create Plan → Add Issue Sources
+
+Enable roll-ups:
+
+Plan Settings → Calculations → Roll-up → Time Tracking
+
+Then it automatically shows:
+
+✔ Epic Total Estimate
+✔ Epic Total Time Logged
+✔ Remaining Estimate
+
+⸻
+
+✅ Solution 4 — Use plugins (if automation is hard)
+
+Plugins that support Epic time rollup:
+	•	Tempo Timesheets (best)
+	•	WorklogPRO
+	•	Time in Status
+	•	BigPicture / BigGantt
+
+These instantly aggregate rollups with zero setup.
+
+⸻
+
+⭐ Best Working Setup for You
+
+Based on your screenshots, you are using Jira Server/DC with no plugins.
+
+So the easiest working method:
+
+✔ Use Automation Rule (Solution 1)
+
+It will:
+	•	Whenever Subtask logs time → Task updates
+	•	Task logs time → Epic time updates
+	•	Epic always shows total worked hours
+
+⸻
+
+If you want, I can create the exact automation JSON for:
+	•	Rolling up worklog to Task
+	•	Rolling up Task total to Epic
+	•	Recalculating remaining estimate
+
+Just tell me what exact fields you want to sync:
+
+A) Only Time Spent
+
+B) Time Spent + Remaining
+
+C) Original Estimate + Time Spent + Remaining
+
+I can generate the ready-to-import rule for you.
