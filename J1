@@ -251,3 +251,16 @@ OR
 ✅ Screenshots (AI generated) for each rule with visual steps
 
 Just tell me “Give screenshots for all 3 rules”.
+
+
+
+
+{
+  "fields": {
+    "timetracking": {
+      "originalEstimate": "{{#=}} {{lookupIssues.sum.timetracking.originalEstimateSeconds}} / 60 {{/}}",
+      "remainingEstimate": "{{#=}} {{lookupIssues.sum.timetracking.remainingEstimateSeconds}} / 60 {{/}}"
+    },
+    "timespent": "{{lookupIssues.sum.timespent}}"
+  }
+}
