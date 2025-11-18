@@ -1,0 +1,62 @@
+DevOps Process Overview – On-Prem Spring Boot Deployment (Equitas Bank)
+ 
+DevOps Workflow Summary
+ 
+•End-to-end CI/CD pipeline for on-prem Java/Spring Boot microservices
+•Automated build, quality checks, artifact storage, and deployment
+•Ensures consistency, security, and reliability across environments
+•Supports deployments on both Linux servers and Kubernetes clusters
+Loading…
+Source Code Management – Branching Strategy
+ 
+•Structured branches: dev, uat, preprod, prod
+•Developers commit only to dev branch
+•Merge Requests enforced for higher environments
+•Approval process involving EA managers/reviewers
+•Clean, traceable, and governed code movement
+Code Quality & Security – SonarQube
+ 
+•Automatic code scan triggered in Jenkins
+•Detects vulnerabilities, bugs, and code smells
+•Quality gate enforced before proceeding
+•Improves maintainability and reduces production issues
+Loading…
+Artifact Management – JFrog Artifactory
+ 
+•Stores all built JAR artifacts
+•Version-controlled repository for builds
+•Reliable rollback and re-deployment support
+•Consistent artifact availability across environments
+Deployment Targets
+ 
+•On-Prem Deployment Servers: traditional JAR execution, systemd/service scripts
+•Kubernetes Deployments: container-based, YAML updates, scaling & health checks
+•Higher resilience and easier management at scale
+Jenkins Pipeline Overview – Environment Setup
+ 
+•Define variables and credentials
+•Prepare workspace
+•Configure project-level settings
+Code Checkout & Sonar – CI Stage
+ 
+•Checkout code from GitLab
+•Run SonarQube static analysis
+•Generate quality and coverage reports
+•Validate quality gate
+Build Stage – CI
+ 
+•Compile source code
+•Run unit tests
+•Package into JAR using Maven/Gradle
+•Upload artifact to Artifactory
+Deployment Process – CD
+ 
+•Stop old running process safely
+•Fetch new JAR from Artifactory
+•Deploy and start new service
+•Validate logs and health checks
+Loading…
+Benefits of This DevOps Model
+ 
+•Faster and reliable deployments
+•Governed and trackable code movement
