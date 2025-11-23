@@ -1,0 +1,243 @@
+Release Management – Documentation
+1. General – Branching Strategy & Documentation
+Objective:
+
+Standardize the branching model across all teams by following GitFlow/GitHub Flow with zero deviations, ensuring consistent release management and traceability.
+
+ 
+
+1.1 Proposed Branching Strategy (GitFlow Aligned)
+
+ 
+
+Branches:
+
+- main/master: Stores production-ready code (Protected: EA Managers)
+
+- uat: Code approved & ready for UAT builds (Protected: EA Managers)
+
+- preprod: Final staging before Prod (Protected: EA Managers)
+
+- sit/dev: Active development (Developers)
+
+- feature/*: Feature development (Developers)
+
+- hotfix/*: Emergency production fixes (EA Managers)
+
+- release/*: Release preparation (EA Managers)
+
+ 
+
+1.2 Branching Workflow
+
+ 
+
+Development:
+
+1. Developer creates feature/<module> from sit/dev
+
+2. Developer commits and raises MR → sit/dev
+
+3. MR must have reviewer approval, clean SonarQube report, and CI success
+
+ 
+
+Promotion to UAT:
+
+1. EA Manager merges into uat
+
+2. Jenkins deploys to UAT
+
+ 
+
+Promotion to Pre-Prod:
+
+1. MR from uat → preprod after UAT approval
+
+2. EA Manager approves
+
+ 
+
+Promotion to Prod:
+
+1. MR from preprod → main
+
+2. Requires CAB approval, EA approval, and pipeline checks
+
+ 
+
+1.3 Zero Deviation Rules:
+
+- No direct commits to protected branches
+
+- All changes must go through MR workflow
+
+- Environment order must be followed strictly
+
+- Semantic versioning for tags (v1.0.0, v1.1.0)
+
+ 
+
+1.4 Deliverables:
+
+- Branching strategy document
+
+- CI/CD flow diagrams
+
+- MR guidelines
+
+- Access matrix
+
+- Promotion checklist
+
+2. TechDebt – JIRA Workflow Integration With Jenkins
+Objective:
+
+Implement automated JIRA–Jenkins workflow to ensure full traceability across builds, scans, and deployments.
+
+ 
+
+2.1 Workflow Overview:
+
+1. Developer updates JIRA → moves issue to "In Development"
+
+2. Commit message must follow: <JiraIssueKey>: <message>
+
+3. Jenkins pipeline extracts the JIRA key
+
+4. Pipeline updates JIRA with:
+
+  - Build started
+
+  - SonarQube results
+
+  - Docker image pushed
+
+  - Deployment completed
+
+ 
+
+2.2 Jenkins–JIRA Integration Steps:
+
+ 
+
+Step 1: Configure JIRA credentials
+
+- Add API token or user/pass as ID: jira-creds
+
+ 
+
+Step 2: Install Jenkins plugins:
+
+- Jira Pipeline Steps
+
+- Jira Integration
+
+- Http Request
+
+ 
+
+Step 3: Fix certificate trust issue:
+
+keytool -import -alias jira-cert -file jira.cer -keystore /appdata/jenkins.war/WEB-INF/etc/keystore
+
+ 
+
+Step 4: Example Jenkinsfile snippet:
+
+def issueKey = sh(script: "git log -1 --pretty=%B | awk '{print $1}'", returnStdout: true).trim()
+
+jiraTransitionIssue idOrKey: issueKey, transition: 'Build Started'
+
+jiraAddComment idOrKey: issueKey, comment: "Build started: ${env.BUILD_URL}"
+
+ 
+
+2.3 Workflow States:
+
+- Build started → In Progress
+
+- Build passed → Ready for Deployment
+
+- Deployment success → Deployed (SIT/UAT/PROD)
+
+- Deployment failure → Reopen Ticket
+
+ 
+
+2.4 Deliverables:
+
+- JIRA workflow diagram
+
+- Integration setup document
+
+- Commit message standards
+
+- Validation checklist
+
+3. Process – Labelling Strategy for Releases
+Objective:
+
+Define a uniform labeling standard for artifacts stored in Artifactory.
+
+ 
+
+3.1 Need for Labeling:
+
+- Reduce ambiguity across environments
+
+- Prevent accidental deployments
+
+- Enable easy rollback and traceability
+
+- Useful for audits
+
+ 
+
+3.2 Label Format:
+
+<application-name>-<version>-<environment>
+
+ 
+
+Examples:
+
+fundtransfer-1.0.7-sit.jar
+
+fundtransfer-1.0.7-uat.jar
+
+fundtransfer-1.0.7-preprod.jar
+
+fundtransfer-1.0.7-prod.jar
+
+ 
+
+3.3 Versioning Standard:
+
+Major.Minor.Patch (e.g., 1.4.2)
+
+ 
+
+3.4 Artifactory Flow:
+
+1. Jenkins assigns version
+
+2. Uploads artifact to Artifactory version path
+
+3. Jenkins applies environment label at deployment time
+
+4. Kubernetes/ArgoCD pulls labeled artifact
+
+5. Production tags are frozen permanently
+
+ 
+
+3.5 Deliverables:
+
+- Label naming convention
+
+- Versioning guidelines
+
+- Folder structure template
+
+- Deployment label logic
