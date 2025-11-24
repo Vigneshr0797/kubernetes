@@ -1,0 +1,239 @@
+Alright dude, buckle up — here’s a clean full PPT content you can directly paste into slides for Jira + Jenkins Integration on On-Premises Setup.
+I’ll give it slide-wise with diagrams (text format) so you can copy into PowerPoint easily.
+
+⸻
+
+📘 PPT: Jira & Jenkins Integration – On-Premises Setup
+
+⸻
+
+Slide 1 – Title Slide
+
+Jira & Jenkins Integration for Automated Build Process
+On-Premises CI Workflow
+Presented by: [Your Name / Team]
+
+⸻
+
+Slide 2 – Introduction
+
+Why integrate Jira with Jenkins?
+	•	To connect development tasks with automated build pipelines
+	•	Gain full visibility from requirement → code → build → deployment
+	•	Automatically trigger Jenkins jobs from Jira issue updates
+	•	Update Jira issues with build status & deployment results
+	•	Improve governance, traceability, and audit readiness
+
+⸻
+
+Slide 3 – On-Premises Environment Overview
+
+Your Infra Setup
+	•	Jira Server (On-Prem) – Issue tracking & workflow
+	•	Jenkins Server (On-Prem) – CI build automation
+	•	GitLab / Bitbucket (On-Prem) – Source control
+	•	JDK, Maven/Gradle, Docker (optional)
+	•	Firewall rules, SSL cert trust requirements
+	•	Secure network connectivity between all systems
+
+⸻
+
+Slide 4 – Business Need / Problem Statement
+	•	Teams commit code but builds are manually tracked
+	•	No single source of truth for build success/failure
+	•	Manual updates in Jira → delays, errors
+	•	No automated trigger from Jira to Jenkins
+	•	Need governance for Production changes (audit requirement)
+
+Solution: Integrate Jira ↔ Jenkins with automated triggers & status sync.
+
+⸻
+
+Slide 5 – Key Features of Jira–Jenkins Integration
+	•	✔ Auto-trigger Jenkins pipeline using Jira issue updates
+	•	✔ Update Jira ticket with build status (Success/Failed/Aborted)
+	•	✔ Add build logs, artifacts, and deployment details in Jira
+	•	✔ Enforce that each build must be linked to Jira issue key
+	•	✔ Improve DevOps visibility & release governance
+
+⸻
+
+Slide 6 – Integration Architecture Diagram
+
+        ┌───────────────┐         ┌──────────────┐
+        │   Developers   │ Commit  │   GitLab      │
+        └───────┬───────┘────────>│ (Repo)        │
+                │                  └───────┬──────┘
+                │                          │
+                ▼                          │ Webhook
+        ┌──────────────┐        Trigger    │
+        │    Jira       │ <──────────────┐ │
+        │ (Issue Key)   │                │ │
+        └───────┬──────┘                │ │
+                │ REST API              │ │
+                │                        ▼ ▼
+        ┌──────────────┐         ┌──────────────┐
+        │   Jenkins     │  <---->│   Jira Plugin │
+        │ (CI Pipeline) │ Update │               │
+        └───────┬──────┘ Ticket  └──────────────┘
+                │
+                ▼
+        ┌──────────────┐
+        │   Artifacts   │
+        │ (Jar / Image) │
+        └──────────────┘
+
+
+⸻
+
+Slide 7 – Prerequisites
+
+On-Prem Jira
+	•	Admin access
+	•	Jira DVCS Connector / Webhook enabled
+	•	REST API access enabled
+	•	SSL certificates trusted in Jenkins
+
+On-Prem Jenkins
+	•	Jira Trigger Plugin installed
+	•	Jira Credentials configured (API token/user)
+	•	Job must accept $JiraIssueKey
+	•	Firewall connectivity to Jira server
+
+⸻
+
+Slide 8 – Step-by-Step Integration Setup
+
+1️⃣ Configure Jira → Jenkins Trigger
+	•	Go to Jira Project Settings → Automation
+	•	Add a rule: “When issue is transitioned to Build Ready → Trigger Jenkins Job”
+	•	Pass issue key as parameter
+
+2️⃣ Configure Jenkins Credentials
+	•	Jenkins → Manage Credentials
+	•	Add Jira API credentials
+	•	Add Jira URL under “Configure System”
+
+3️⃣ Add Jira Validation in Jenkins Pipeline
+
+def issueKey = params.JiraIssueKey
+if (!issueKey) {
+    error "Jira issue key is required"
+}
+
+4️⃣ Update Jira Issue with Build Status
+
+Use:
+
+jiraIssueUpdater issueKey: issueKey, comment: "Build Success – #${BUILD_NUMBER}"
+
+
+⸻
+
+Slide 9 – Jenkins Pipeline Example
+
+pipeline {
+    parameters {
+        string(name: 'JiraIssueKey', defaultValue: '')
+    }
+
+    stages {
+        stage('Validate Jira') {
+            steps {
+                script {
+                    if (!params.JiraIssueKey) {
+                        error "Missing Jira Issue Key!"
+                    }
+                }
+            }
+        }
+        stage('Build') {
+            steps {
+                sh "mvn clean install"
+            }
+        }
+        stage('Update Jira') {
+            steps {
+                jiraIssueUpdater issueKey: params.JiraIssueKey,
+                                 comment: "Build ${BUILD_NUMBER} completed"
+            }
+        }
+    }
+}
+
+
+⸻
+
+Slide 10 – Build Traceability Flow
+
+Developer commits code
+        ↓
+Commit message contains Jira Issue Key
+        ↓
+Jenkins pipeline triggered
+        ↓
+Build + Test + Artifact creation
+        ↓
+Jira updated automatically with:
+    ✔ Build Status
+    ✔ Build Number
+    ✔ Deployment Note
+        ↓
+Managers & QA can track everything from Jira
+
+
+⸻
+
+Slide 11 – On-Prem Challenges & Fixes
+
+Issue	Reason	Fix
+SSL / Certificate trust error	On-prem Jira cert not trusted	Import Jira cert into Jenkins JVM truststore
+Jenkins cannot trigger Jira	Firewall restrictions	Whitelist ports 443/8080
+Jira REST API blocked	Permissions issue	Add API token + required roles
+Wrong Issue Key	Devs forget to add key	Validate in pipeline
+
+
+⸻
+
+Slide 12 – Benefits of the Integration
+	•	Faster & automated CI workflow
+	•	No manual updates in Jira
+	•	Full transparency for QA, Dev, and Managers
+	•	Release audit becomes easier
+	•	Every deployment is linked to a Jira ticket
+	•	Reduced mistakes & improved governance
+
+⸻
+
+Slide 13 – Real Example from Your Environment (Optional)
+
+You can add:
+	•	Your Jenkins URL
+	•	Your Jira project flow
+	•	Your build → deploy flow
+	•	Screenshots of your pipelines
+
+⸻
+
+Slide 14 – Summary
+	•	Jira ↔ Jenkins integration enables smart DevOps automation
+	•	Ensures every build is tracked with an issue
+	•	Provides central visibility
+	•	Improves compliance for production releases
+	•	Essential for enterprise on-prem DevOps setup
+
+⸻
+
+Slide 15 – Q&A
+
+Any questions?
+I can also provide: diagrams, step-by-step setup, or troubleshooting.
+
+⸻
+
+If you want, I can generate:
+🎨 PowerPoint file (.pptx)
+📊 Visually designed diagrams
+📌 More slides on branching, CI/CD, Kubernetes also
+
+Just say “give me PPT file”.
