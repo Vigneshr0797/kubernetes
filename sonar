@@ -1,61 +1,23 @@
+[root@EQVLSQBEAPDR01 ~]# systemctl status sonarqube
+× sonarqube.service - Sonarqube service
+     Loaded: loaded (/etc/systemd/system/sonarqube.service; disabled; preset: disabled)
+     Active: failed (Result: start-limit-hit) since Tue 2025-11-25 12:02:52 IST; 14s ago
+   Duration: 831us
+    Process: 155149 ExecStart=/opt/sonarqube/bin/linux-x86-64/sonar.sh start (code=exited, status=0/SUCCESS)
+    Process: 155173 ExecStop=/opt/sonarqube/bin/linux-x86-64/sonar.sh stop (code=exited, status=0/SUCCESS)
+        CPU: 47ms
+
+Nov 25 12:02:51 EQVLSQBEAPDR01 systemd[1]: sonarqube.service: Deactivated successfully.
+Nov 25 12:02:51 EQVLSQBEAPDR01 systemd[1]: Started Sonarqube service.
+Nov 25 12:02:52 EQVLSQBEAPDR01 systemd[1]: sonarqube.service: Scheduled restart job, restart counter is at 5.
+Nov 25 12:02:52 EQVLSQBEAPDR01 systemd[1]: Stopped Sonarqube service.
+Nov 25 12:02:52 EQVLSQBEAPDR01 systemd[1]: sonarqube.service: Start request repeated too quickly.
+Nov 25 12:02:52 EQVLSQBEAPDR01 systemd[1]: sonarqube.service: Failed with result 'start-limit-hit'.
+Nov 25 12:02:52 EQVLSQBEAPDR01 systemd[1]: Failed to start Sonarqube service.
+[root@EQVLSQBEAPDR01 ~]# ss -tulpn | grep 9090
 [root@EQVLSQBEAPDR01 ~]# cd /opt/sonarqube/logs/
 [root@EQVLSQBEAPDR01 logs]# ls
 nohup.log  README.txt  sonar.log
-[root@EQVLSQBEAPDR01 logs]# cat nohup.log
-2025.11.24 15:38:56 INFO  app[][o.s.a.AppFileSystem] Cleaning or creating temp directory /opt/sonarqube/temp
-2025.11.24 15:38:56 INFO  app[][o.s.a.es.EsSettings] Elasticsearch listening on [HTTP: 127.0.0.1:9001, TCP: 127.0.0.1:{}]
-2025.11.24 15:38:56 INFO  app[][o.s.a.ProcessLauncherImpl] Launch process[ELASTICSEARCH] from [/opt/sonarqube/elasticsearch]: /usr/lib/jvm/jdk-17.0.16/bin/java -Xms4m -Xmx64m -XX:+UseSerialGC -Dcli.name=server -Dcli.script=./bin/elasticsearch -Dcli.libs=lib/tools/server-cli -Des.path.home=/opt/sonarqube/elasticsearch -Des.path.conf=/opt/sonarqube/temp/conf/es -Des.distribution.type=tar -cp /opt/sonarqube/elasticsearch/lib/*:/opt/sonarqube/elasticsearch/lib/cli-launcher/* org.elasticsearch.launcher.CliToolLauncher
-2025.11.24 15:38:56 ERROR app[][o.s.a.p.ManagedProcessHandler] Failed to launch process [ElasticSearch]
-java.lang.IllegalStateException: Fail to launch process [ElasticSearch]
-        at org.sonar.application.ProcessLauncherImpl.launchJava(ProcessLauncherImpl.java:229)
-        at org.sonar.application.ProcessLauncherImpl.launch(ProcessLauncherImpl.java:96)
-        at org.sonar.application.SchedulerImpl.lambda$tryToStartProcess$2(SchedulerImpl.java:209)
-        at org.sonar.application.process.ManagedProcessHandler.start(ManagedProcessHandler.java:76)
-        at org.sonar.application.SchedulerImpl.tryToStartProcess(SchedulerImpl.java:207)
-        at org.sonar.application.SchedulerImpl.tryToStartEs(SchedulerImpl.java:142)
-        at org.sonar.application.SchedulerImpl.tryToStartAll(SchedulerImpl.java:134)
-        at org.sonar.application.SchedulerImpl.schedule(SchedulerImpl.java:113)
-        at org.sonar.application.App.start(App.java:59)
-        at org.sonar.application.App.main(App.java:84)
-Caused by: java.io.IOException: Cannot run program "/usr/lib/jvm/jdk-17.0.16/bin/java" (in directory "/opt/sonarqube/elasticsearch"): error=13, Permission denied
-        at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1143)
-        at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1073)
-        at org.sonar.application.ProcessLauncherImpl$JavaLangProcessBuilder.start(ProcessLauncherImpl.java:371)
-        at org.sonar.application.ProcessLauncherImpl.launchJava(ProcessLauncherImpl.java:227)
-        ... 9 common frames omitted
-Caused by: java.io.IOException: error=13, Permission denied
-        at java.base/java.lang.ProcessImpl.forkAndExec(Native Method)
-        at java.base/java.lang.ProcessImpl.<init>(ProcessImpl.java:314)
-        at java.base/java.lang.ProcessImpl.start(ProcessImpl.java:244)
-        at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1110)
-        ... 12 common frames omitted
-2025.11.24 15:38:56 INFO  app[][o.s.a.SchedulerImpl] Process[ElasticSearch] is stopped
-2025.11.24 15:38:56 INFO  app[][o.s.a.SchedulerImpl] SonarQube is stopped
-2025.11.24 15:38:56 WARN  app[][o.s.a.SchedulerImpl] Failed to start process [ElasticSearch] (currentThread=main)
-java.lang.IllegalStateException: Fail to launch process [ElasticSearch]
-        at org.sonar.application.ProcessLauncherImpl.launchJava(ProcessLauncherImpl.java:229)
-        at org.sonar.application.ProcessLauncherImpl.launch(ProcessLauncherImpl.java:96)
-        at org.sonar.application.SchedulerImpl.lambda$tryToStartProcess$2(SchedulerImpl.java:209)
-        at org.sonar.application.process.ManagedProcessHandler.start(ManagedProcessHandler.java:76)
-        at org.sonar.application.SchedulerImpl.tryToStartProcess(SchedulerImpl.java:207)
-        at org.sonar.application.SchedulerImpl.tryToStartEs(SchedulerImpl.java:142)
-        at org.sonar.application.SchedulerImpl.tryToStartAll(SchedulerImpl.java:134)
-        at org.sonar.application.SchedulerImpl.schedule(SchedulerImpl.java:113)
-        at org.sonar.application.App.start(App.java:59)
-        at org.sonar.application.App.main(App.java:84)
-Caused by: java.io.IOException: Cannot run program "/usr/lib/jvm/jdk-17.0.16/bin/java" (in directory "/opt/sonarqube/elasticsearch"): error=13, Permission denied
-        at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1143)
-        at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1073)
-        at org.sonar.application.ProcessLauncherImpl$JavaLangProcessBuilder.start(ProcessLauncherImpl.java:371)
-        at org.sonar.application.ProcessLauncherImpl.launchJava(ProcessLauncherImpl.java:227)
-        ... 9 common frames omitted
-Caused by: java.io.IOException: error=13, Permission denied
-        at java.base/java.lang.ProcessImpl.forkAndExec(Native Method)
-        at java.base/java.lang.ProcessImpl.<init>(ProcessImpl.java:314)
-        at java.base/java.lang.ProcessImpl.start(ProcessImpl.java:244)
-        at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1110)
-        ... 12 common frames omitted
-2025.11.24 15:38:56 INFO  app[][o.s.a.SchedulerImpl] Waiting for Elasticsearch to be up and running
 [root@EQVLSQBEAPDR01 logs]# cat sonar.log
 2025.11.24 14:44:47 INFO  app[][o.s.a.AppFileSystem] Cleaning or creating temp directory /opt/sonarqube/temp
 2025.11.24 14:44:47 INFO  app[][o.s.a.es.EsSettings] Elasticsearch listening on [HTTP: 127.0.0.1:9001, TCP: 127.0.0.1:{}]
@@ -597,9 +559,28 @@ Caused by: java.io.IOException: error=13, Permission denied
         at java.base/java.lang.ProcessBuilder.start(ProcessBuilder.java:1110)
         ... 12 common frames omitted
 2025.11.24 15:38:56 INFO  app[][o.s.a.SchedulerImpl] Waiting for Elasticsearch to be up and running
-[root@EQVLSQBEAPDR01 logs]#
+[root@EQVLSQBEAPDR01 logs]# cd /etc/systemd/system
+[root@EQVLSQBEAPDR01 system]# ls
+basic.target.wants                          dbus.service          firewalld.service       multi-user.target.wants      sonarqube.service      timers.target.wants
+ctrl-alt-del.target                         default.target        getty.target.wants      network-online.target.wants  sysinit.target.wants   vmtoolsd.service.requires
+dbus-org.freedesktop.nm-dispatcher.service  default.target.wants  graphical.target.wants  sockets.target.wants         sysstat.service.wants
+[root@EQVLSQBEAPDR01 system]# cat sonarqube.service
+[Unit]
+Description=Sonarqube service
+After=network.target postgresql.service
 
+[Service]
+Type=forking
+ExecStart=/opt/sonarqube/bin/linux-x86-64/sonar.sh start
+ExecStop=/opt/sonarqube/bin/linux-x86-64/sonar.sh stop
 
+User=sonarqube
+Group=sonarqube
+Restart=always
+LimitNOFILE=131072
+LimitPROC=8192
+TimeoutStartSec=5
 
-
-
+[Install]
+WantedBy=multi-user.target
+[root@EQVLSQBEAPDR01 system]#
