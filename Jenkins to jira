@@ -1,0 +1,7 @@
+Dear Vamsi,
+
+As discussed, we are planning to integrate Jira with our Jenkins environment in the UAT setup for build automation purposes. For this integration, we require admin access to create the necessary API token.
+
+Additionally, we need to verify whether the Jenkins for Jira plugin is available for our on-premises Jira instance. I have shared the plugin name and screenshot for your reference. Kindly check its availability and, if supported, please proceed with installing the required plugin to enable the integration.
+
+Thank you.
